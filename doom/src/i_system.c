@@ -253,6 +253,9 @@ void I_Error(const char *error, ...)
     atexit_listentry_t *entry;
     boolean exit_gui_popup;
 
+    // Stop the browser from calling into the dead game loop
+    emscripten_cancel_main_loop();
+
     if (already_quitting) {
         fprintf(stderr, "Warning: recursive call to I_Error detected.\n");
         exit(-1);
