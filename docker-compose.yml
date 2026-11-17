@@ -1,0 +1,12 @@
+name: doomq
+
+services:
+  lavinmq:
+    image: cloudamqp/lavinmq:2.11.1
+    ports:
+      - "15672:15672" # management UI and MQTT over WebSocket on /mqtt
+
+  web:
+    build: .
+    ports:
+      - "8080:80"
