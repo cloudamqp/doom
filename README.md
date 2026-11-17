@@ -47,15 +47,18 @@ Add `?broker=wss://user:pass@host/mqtt` to the lobby URL to use another broker.
 
 ## Production
 
-Host the image anywhere and point it at the broker:
+Set up the broker with an administrator's AMQP URL:
 
-    docker run -p 8080:80 -e BROKER_URL='wss://doomq%3Aplayer:secret@broker.example.com/mqtt' <image>
+    node bin/configure-broker.js amqps://admin:secret@broker.example.com
 
-- LavinMQ serves MQTT over WebSocket on its HTTP(S) port, path `/mqtt`. Pages
-  served over HTTPS need `wss://`.
-- Every player gets these credentials. Give DooMQ its own vhost and user
-  (`vhost%3Auser` as username picks the vhost), limit the user to `doomq/#`
-  and cap connections on the vhost.
+This creates the `doomq` vhost, capped at 500 connections, and a `doomq` user
+that can only use MQTT there. It checks that MQTT over WebSocket works with
+that user and writes the `wss://` URL to `web/js/config.js`. Every player gets
+these credentials, and each run sets a new password. The script expects the
+HTTP API at `https://host` for `amqps://` and `http://host:15672` for `amqp://`.
+
+Then build the image and host it anywhere. `-e BROKER_URL=wss://...` sets
+the URL when the container starts instead.
 
 ## Limitations
 
