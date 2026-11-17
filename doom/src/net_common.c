@@ -31,8 +31,9 @@
 #include "net_structrw.h"
 
 // connections time out after 30 seconds
-// we changed this for websockets
-#define CONNECTION_TIMEOUT_LEN 4
+// we changed this for the browser: hidden tabs stop the game loop, so
+// keep players who switch tabs for a moment, but not for long
+#define CONNECTION_TIMEOUT_LEN 10
 
 // maximum time between sending packets
 
