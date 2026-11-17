@@ -83,6 +83,7 @@ async function startGame(host, guest, title, mode) {
 
   await launch(host);
   await waitForLine(guest, "doom: 10,");
+  for (const page of [host, guest]) assert.ok(await page.$eval("#loading", (div) => div.hidden), "still loading");
 }
 
 // The lockstep game only advances while ticcmds flow both ways, about one

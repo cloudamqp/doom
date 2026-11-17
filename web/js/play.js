@@ -45,7 +45,36 @@ let lastError = "";
 function fail(message) {
   $("#message").textContent = message;
   $("#overlay").hidden = false;
+  $("#loading").hidden = true;
   document.exitPointerLock?.();
+}
+
+// Shown over the screen until Doom draws on it
+function loading(text, done, total) {
+  $("#loading-text").textContent = text;
+  const bar = $("#loading progress");
+  if (total) Object.assign(bar, { max: total, value: done });
+  else bar.removeAttribute("value");
+}
+
+const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
+
+async function download(url, progress) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not download ${url}: ${response.status}`);
+  // A compressed response doesn't tell the size of what it unpacks to
+  const total = response.headers.has("content-encoding") ? 0 : Number(response.headers.get("content-length"));
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (let read; !(read = await reader.read()).done; ) {
+    chunks.push(read.value);
+    received += read.value.length;
+    progress(received, total);
+  }
+  const data = new Uint8Array(received);
+  chunks.reduce((offset, chunk) => (data.set(chunk, offset), offset + chunk.length), 0);
+  return data;
 }
 
 function describe(game) {
@@ -192,7 +221,7 @@ function storeSettings(FS) {
   }
 }
 
-function startDoom(mqtt, role) {
+function startDoom(mqtt, role, wad) {
   let running = false;
   const saveSettings = () => {
     if (!running) return; // before Doom has read them, this would reset them
@@ -202,6 +231,7 @@ function startDoom(mqtt, role) {
   addEventListener("visibilitychange", () => document.hidden && saveSettings());
   addEventListener("pagehide", saveSettings);
   $("#hint").textContent = role.hint;
+  loading("Starting Doom…");
 
   window.Module = {
     arguments: [
@@ -212,7 +242,7 @@ function startDoom(mqtt, role) {
     preRun: [
       () => {
         const { FS } = Module;
-        FS.createPreloadedFile("/", "freedoom1.wad", "freedoom1.wad", true, false);
+        FS.writeFile("freedoom1.wad", wad, { canOwn: true });
         restoreSettings(FS);
         FS.mkdir("saves");
         for (const [path, data] of Object.entries(role.files)) FS.writeFile(path, data);
@@ -221,6 +251,8 @@ function startDoom(mqtt, role) {
     // Doom reports progress as "doom: <code>, <text>" lines on stdout
     print(line) {
       console.log(line);
+      // Next comes the waiting room
+      if (line.startsWith("NET_Init:")) $("#loading").hidden = true;
       if (line.startsWith("doom: 10,")) {
         running = true;
         $("#hint").hidden = true;
@@ -255,12 +287,18 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
 } else {
   try {
+    // The game data is most of the wait on a first visit, start right away
+    const wad = download("freedoom1.wad", (received, total) =>
+      loading(`Downloading game data… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total),
+    );
+    wad.catch(() => {});
     const will = hosting ? { topic: topics.listing(gameId), payload: "", retain: true } : undefined;
     const mqtt = await MqttClient.connect(brokerUrl, { will });
     mqtt.onmessage = receive;
     mqtt.onclose = () => fail("Lost connection to the broker.");
     await mqtt.subscribe(topics.inbox(gameId, peerId));
-    startDoom(mqtt, await (hosting ? host(mqtt) : guest(mqtt)));
+    const role = await (hosting ? host(mqtt) : guest(mqtt));
+    startDoom(mqtt, role, await wad);
     $("#canvas").focus();
   } catch (error) {
     fail(error.message);

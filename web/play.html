@@ -16,8 +16,14 @@
       </div>
     </header>
     <main class="game">
-      <!-- no border or padding on the canvas, SDL maps mouse coordinates 1:1 -->
-      <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+      <div class="screen">
+        <!-- no border or padding on the canvas, SDL maps mouse coordinates 1:1 -->
+        <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+        <div id="loading">
+          <p id="loading-text">Connecting…</p>
+          <progress></progress>
+        </div>
+      </div>
       <p id="hint" class="muted"></p>
       <p class="muted">WASD move · mouse turn · click or Space fire · E use · Shift run · F fullscreen</p>
     </main>
