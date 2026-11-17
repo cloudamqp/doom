@@ -40,7 +40,6 @@
 #include "net_server.h"
 #include "net_structrw.h"
 
-#include <SDL_net.h>
 
 typedef enum {
     // waiting for the game to be "launched" (key player to press the start
