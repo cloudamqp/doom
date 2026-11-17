@@ -377,8 +377,9 @@ void G_BuildTiccmd(ticcmd_t *cmd, int maketic)
         if (!fsce.isFullscreen) {
             printf("doom: 11, entering fullscreen");
             emscripten_request_fullscreen("#canvas", 1);
-            emscripten_sleep(1000);
         }
+        // Once per key press, without sleeping in the frame
+        gamekeydown[key_fullscreen] = false;
     }
 
     // buttons
