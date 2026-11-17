@@ -36,9 +36,13 @@ their tab.
 
 ## Development
 
-    docker compose up -d lavinmq                # broker, MQTT over WebSocket on :15672
-    docker build --target dist --output web .   # doom.js, doom.wasm, freedoom1.wad into web/
+    docker compose up -d lavinmq         # broker, MQTT over WebSocket on :15672
+    bin/build.sh                         # doom.js, doom.wasm, freedoom1.wad into web/
     python3 -m http.server -d web 8080
+
+`bin/build.sh` installs what it needs: build tools with apt-get, and
+Emscripten in `~/emsdk` unless `emcc` is already on `PATH`, as in the
+[emsdk image][4].
 
     npm install
     npm test    # needs the broker and the web app on :8080
@@ -75,3 +79,4 @@ the URL when the container starts instead.
 [1]: https://www.chocolate-doom.org
 [2]: https://github.com/cloudflare/doom-wasm
 [3]: https://freedoom.github.io
+[4]: https://hub.docker.com/r/emscripten/emsdk

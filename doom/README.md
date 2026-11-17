@@ -14,9 +14,11 @@
 
 ## Build
 
-Inside the [emsdk image][4], or see `../Dockerfile`:
+With Emscripten, e.g. inside the [emsdk image][4]:
 
     make -j"$(nproc)"    # build/doom.js, build/doom.wasm
+
+`../bin/build.sh` installs Emscripten if needed and copies the result to `web/`.
 
 ## Status lines
 
