@@ -1,74 +1,40 @@
-# Wasm Doom
+# Doom for DooMQ
 
-This is a [Chocolate Doom][1] WebAssembly port with WebSockets [support][4].
+[Chocolate Doom][1] compiled to WebAssembly, based on Cloudflare's [doom-wasm][2]
+(imported unmodified in the first commit of this branch). Changes since:
 
-## Requirements
+- `src/net_mqtt.c` replaces the WebSocket relay module. It passes packets to
+  `Module.net` in JavaScript (`web/js/play.js`), which carries them over MQTT.
+  `-server` hosts a game as peer 1, `-connect 1` joins it.
+- A single `Makefile` for Emscripten replaces autotools and CMake.
+- `boolean` has the same size in every file (backported from [chocolate-doom#1723][3]).
+- The OPL music emulator starts without waiting for audio, which browsers hold
+  back until the user interacts with the page.
+- Fatal errors stop the game loop, and connections time out after 10 s instead of 4 s.
 
-You need to install Emscripten and a few other tools first:
+## Build
 
-```
-brew install emscripten
-brew install automake
-brew install sdl2 sdl2_mixer sdl2_net
-```
+Inside the [emsdk image][4], or see `../Dockerfile`:
 
-## Compiling
+    make -j"$(nproc)"    # build/doom.js, build/doom.wasm
 
-There are two scripts to facilitate compiling Wasm Doom:
+## Status lines
 
-```
-./scripts/clean.sh
-./scripts/build.sh
-```
+The game prints `doom: <code>, <text>` lines on stdout for the page to act on:
 
-## Running
-
-Copy the shareware version of [doom1.wad][3] to [./src][9] (make sure it has the name doom1.wad)
-
-Then:
-
-```
-cd src
-python -m SimpleHTTPServer
-```
-
-Then open your browser and point it to http://0.0.0.0:8000/
-
-Doom should start (local mode, no network). Check [doom-workers][8] if you want to run multiplayer locally.
-
-Inspect [src/index.html][6] for startup details.
-
-Check our live multiplayer [demo][5] and [blog post][7].
-
-## stdout procotol
-
-To show important messages coming from the game while it's running we send the following formatted stdout messages, which can be parsed in the web page running the wasm:
-
-```
-doom: 1, failed to connect to websockets server
-doom: 2, connected to %s
-doom: 3, we're out of client addresses
-doom: 4, ws error(eventType=%d, userData=%d)
-doom: 5, ws close(eventType=%d, wasClean=%d, code=%d, reason=%s, userData=%d)
-doom: 6, failed to send ws packet, reconnecting
-doom: 7, failed to connect to %s
-doom: 8, uid is %d
-doom: 9, disconnected from server
-doom: 10, game started
-doom: 11, entering fullscreen
-doom: 12, client '%s' timed out and disconnected
-```
+| Code | Meaning |
+|------|---------|
+| 7    | could not join the server, with Doom's reason |
+| 9    | disconnected from the server |
+| 10   | game started |
+| 11   | entering fullscreen |
+| 12   | a client timed out (server only) |
 
 ## License
 
-Chocolate Doom and this port are distributed under the GNU GPL. See the COPYING file for more information.
+GNU GPL v2, see `COPYING.md`.
 
 [1]: https://github.com/chocolate-doom/chocolate-doom
-[2]: https://emscripten.org/
-[3]: https://doomwiki.org/wiki/DOOM1.WAD
-[4]: src/net_websockets.c
-[5]: https://silentspacemarine.com
-[6]: src/index.html
-[7]: https://blog.cloudflare.com/doom-multiplayer-workers
-[8]: https://github.com/cloudflare/doom-workers
-[9]: src
+[2]: https://github.com/cloudflare/doom-wasm
+[3]: https://github.com/chocolate-doom/chocolate-doom/pull/1723
+[4]: https://hub.docker.com/r/emscripten/emsdk
