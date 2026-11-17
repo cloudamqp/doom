@@ -18,7 +18,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include <emscripten.h>
 
@@ -40,10 +39,8 @@
 #include "net_loop.h"
 #include "net_query.h"
 #include "net_server.h"
-#include "net_websockets.h"
+#include "net_mqtt.h"
 #include "z_zone.h"
-
-uint32_t instanceUID;
 
 // The complete set of data for a particular tic.
 
@@ -417,38 +414,29 @@ boolean D_InitNetGame(net_connect_data_t *connect_data)
     //
 
     if (M_CheckParm("-server") > 0 || M_CheckParm("-privateserver") > 0) {
-        // Server has instanceUID 1
-        instanceUID = 1;
         NET_SV_Init();
         NET_SV_AddModule(&net_loop_server_module);
-        NET_SV_AddModule(&net_websockets_module);
+        NET_SV_AddModule(&net_mqtt_module);
         net_loop_client_module.InitClient();
         addr = net_loop_client_module.ResolveAddress(NULL);
         NET_ReferenceAddress(addr);
     }
     else {
         //!
-        // @arg <address>
+        // @arg <id>
         // @category net
         //
-        // Connect to a multiplayer server running on the given
-        // address.
+        // Connect to a multiplayer server with the given MQTT peer id.
         //
-
-        // Generate UID for this instance - it will be used as the websocketsID
-        srand((unsigned int)time(NULL));
-        instanceUID = rand() % 0xfffe;
 
         i = M_CheckParmWithArgs("-connect", 1);
 
         if (i > 0) {
-            net_websockets_module.InitClient();
-            addr = net_websockets_module.ResolveAddress("1"); // server address is 1!
+            net_mqtt_module.InitClient();
+            addr = net_mqtt_module.ResolveAddress(myargv[i + 1]);
             NET_ReferenceAddress(addr);
         }
     }
-
-    printf("doom: 8, uid is %d\n", instanceUID);
 
     if (addr != NULL) {
         if (M_CheckParm("-drone") > 0) {
@@ -456,7 +444,7 @@ boolean D_InitNetGame(net_connect_data_t *connect_data)
         }
 
         if (!NET_CL_Connect(addr, connect_data)) {
-            I_Error("doom: 7, failed to connect to %s\n", NET_AddrToString(addr));
+            I_Error("doom: 7, could not join: %s\n", net_client_reject_reason);
         }
 
         NET_ReleaseAddress(addr);

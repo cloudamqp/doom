@@ -30,7 +30,7 @@
 #include "net_packet.h"
 #include "net_query.h"
 #include "net_structrw.h"
-#include "net_websockets.h"
+#include "net_mqtt.h"
 
 // DNS address of the Internet master server.
 
@@ -360,8 +360,8 @@ void NET_Query_Init(void)
 {
     if (query_context == NULL) {
         query_context = NET_NewContext();
-        NET_AddModule(query_context, &net_websockets_module);
-        net_websockets_module.InitClient();
+        NET_AddModule(query_context, &net_mqtt_module);
+        net_mqtt_module.InitClient();
     }
 
     free(targets);
