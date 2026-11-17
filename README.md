@@ -74,14 +74,35 @@ Set up the broker with an administrator's AMQP URL:
 
     node bin/configure-broker.js amqps://admin:secret@broker.example.com
 
-This creates the `doomq` vhost, capped at 500 connections, and a `doomq` user
-that can only use MQTT there. It checks that MQTT over WebSocket works with
-that user and writes the `wss://` URL to `web/js/config.js`. Every player gets
-these credentials, and each run sets a new password. The script expects the
-HTTP API at `https://host` for `amqps://` and `http://host:15672` for `amqp://`.
+It writes the `wss://` URL for the web app to `web/js/config.js`, after
+checking that MQTT over WebSocket works with it. Then build the image and
+host it anywhere, or set the URL when the container starts with
+`-e BROKER_URL=wss://...`. The script expects the HTTP API at `https://host`
+for `amqps://` and `http://host:15672` for `amqp://`.
 
-Then build the image and host it anywhere. `-e BROKER_URL=wss://...` sets
-the URL when the container starts instead.
+Every player gets the credentials, so the setup limits what they allow:
+
+- A `doomq` vhost of its own, with at most 500 connections.
+- A `doomq` user that can only use MQTT, on DooMQ's topic patterns only.
+  Other topics are dropped.
+- A policy that drops the oldest messages once 1 MB is queued for a client
+  that stopped reading.
+
+Every run starts over: it deletes and recreates the vhost, which ends
+running games and clears all saves, along with anything someone stored
+there. Run it daily or weekly to clear out abuse, with `DOOMQ_PASSWORD` set
+so the web app's URL stays the same:
+
+    DOOMQ_PASSWORD=... node bin/configure-broker.js amqps://admin:secret@broker.example.com
+
+LavinMQ has no limit on retained messages, so between runs, someone with the
+credentials can fill the disk with retained messages on topics like
+`doomq/saves/<anything>`. Two broker settings bound that:
+
+- `[mqtt] max_packet_size = 262144` caps every message at 256 KB, four times
+  the biggest gzipped save.
+- `[main] free_disk_min` sets how much free disk LavinMQ keeps, it refuses
+  publishes below that. Without it, the floor is three segments (24 MB).
 
 ## Limitations
 
