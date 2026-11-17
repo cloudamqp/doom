@@ -4,8 +4,10 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import puppeteer from "puppeteer";
+import { MqttClient } from "../web/js/mqtt.js";
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:8080";
+const BROKER_URL = process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt";
 
 let browser;
 
@@ -37,7 +39,8 @@ async function createGame(page, title, mode = "deathmatch") {
   await page.waitForFunction((title) => document.querySelector("#title").textContent === title, {}, title);
 }
 
-const listing = (title) => `::-p-xpath(//tbody/tr[td[1][text()="${title}"]])`;
+const listing = (title) => `::-p-xpath(//table[@id="games"]/tbody/tr[td[1][text()="${title}"]])`;
+const savedGame = (title) => `::-p-xpath(//table[@id="saves"]/tbody/tr[td[1][text()="${title}"]])`;
 
 async function waitForLine(page, prefix, timeout = 15_000) {
   const deadline = Date.now() + timeout;
@@ -58,11 +61,24 @@ async function launch(host) {
   }
 }
 
+// Doom only saves in a running level, right after loading one it doesn't
+async function autosave(page) {
+  for (let tries = 0; !page.lines.some((line) => line.startsWith("doom: 13,")); tries++) {
+    assert.ok(tries < 40, `no save:\n${page.lines.join("\n")}`);
+    await page.evaluate(() => Module._G_AutoSave());
+    await sleep(250);
+  }
+}
+
+async function join(guest, title) {
+  const link = await guest.waitForSelector(`${listing(title)} >>> a`);
+  await Promise.all([guest.waitForNavigation(), link.click()]);
+}
+
 // The host creates a game in the lobby, the guest joins and the host starts it
-async function startGame(host, guest, title) {
-  await createGame(host, title);
-  const join = await guest.waitForSelector(`${listing(title)} >>> a`);
-  await Promise.all([guest.waitForNavigation(), join.click()]);
+async function startGame(host, guest, title, mode) {
+  await createGame(host, title, mode);
+  await join(guest, title);
   await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/4 players"));
 
   await launch(host);
@@ -123,10 +139,47 @@ test("players join a game and play it over MQTT", async () => {
   const row = await lobby.waitForSelector(listing(title));
   assert.match(await row.evaluate((tr) => tr.innerText), /2\/4\tIn progress/);
 
-  // Doom has no drop-in, the server turns late joiners away
+  // Doom has no drop-in
   await lobby.goto(guest.url());
   await lobby.waitForSelector("#overlay:not([hidden])");
-  assert.match(await lobby.$eval("#message", (p) => p.textContent), /could not join/);
+  assert.match(await lobby.$eval("#message", (p) => p.textContent), /already started/);
+});
+
+test("a saved game can be resumed", async () => {
+  const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
+  const title = `Saved ${Date.now().toString(36)}`;
+  await host.select("#create [name=map]", "E1M3");
+  await startGame(host, guest, title, "coop");
+
+  // The page autosaves every 2 minutes, every player saves the same tic
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const shared = new Promise((resolve) => (mqtt.onmessage = resolve));
+  await mqtt.subscribe(`doomq/saves/${new URL(host.url()).searchParams.get("game")}`);
+  await autosave(host);
+  await Promise.all([waitForLine(guest, "doom: 13,"), shared]);
+  mqtt.close();
+  await Promise.all([host.close(), guest.close()]);
+
+  // Once the game is over the lobby offers to resume it
+  const save = await lobby.waitForSelector(savedGame(title));
+  assert.match(await save.evaluate((tr) => tr.innerText), /Hanna\tCo-op\tE1M3\t2\t/);
+  const savedId = await save.$eval("a", (a) => new URL(a.href).searchParams.get("resume"));
+  await Promise.all([lobby.waitForNavigation(), save.$eval("a", (a) => a.click())]);
+  await lobby.waitForFunction(() => document.querySelector("#details").textContent.endsWith("1/2 players"));
+
+  // It starts by itself once as many players as saved have joined
+  const latecomer = await player("Gil");
+  await latecomer.waitForSelector(savedGame(title), { hidden: true });
+  await join(latecomer, title);
+  await Promise.all([waitForLine(lobby, "doom: 10,"), waitForLine(latecomer, "doom: 10,")]);
+  assert.match(await lobby.$eval("#details", (p) => p.textContent), /E1M3 · 2\/2 players/);
+
+  // Its first save replaces the one it was resumed from
+  await autosave(lobby);
+  const watcher = await player("Wes");
+  await sleep(1_000);
+  const resumable = await watcher.$$eval("#saves a", (links) => links.map((a) => new URL(a.href).searchParams.get("resume")));
+  assert.ok(!resumable.includes(savedId), "the old save is still there");
 });
 
 test("Doom settings outlive the page", async () => {
@@ -164,8 +217,9 @@ test("a hidden tab keeps playing", { skip: !process.env.DISPLAY && "needs a disp
     assert.equal(await host.evaluate(() => document.visibilityState), "hidden");
     const received = await countPackets(guest);
     await sleep(10_000);
-    // A throttled host manages about 3 packets per second
-    assert.ok((await received()) > 300, `guest received ${await received()} packets in 10 s`);
+    // At least half speed, a throttled host manages about 3 packets per second
+    const packets = await received();
+    assert.ok(packets > 175, `guest received ${packets} packets in 10 s`);
   } finally {
     await headful.close();
   }

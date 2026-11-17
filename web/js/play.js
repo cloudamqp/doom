@@ -4,10 +4,17 @@ import {
   MODES,
   SERVER_ID,
   brokerUrl,
+  deleteSave,
   doomArgs,
+  gunzip,
+  gzip,
+  isGameId,
   link,
+  modeArgs,
   newPeerId,
   parseListing,
+  parseSave,
+  readSaveHeader,
   settingsFromQuery,
   topics,
 } from "./doomq.js";
@@ -15,18 +22,24 @@ import {
 // Doom peers send a keepalive at least every 2 s
 const PRESENCE_WINDOW = 5_000;
 const ANNOUNCE_INTERVAL = 5_000;
+const AUTOSAVE_INTERVAL = 120_000;
 // Doom's settings (volume, keys, mouse, ...), kept between visits
 const SETTINGS = ["default.cfg", "doomq.cfg"];
+// Every player loads a resumed game from this slot, -loadgame 0
+const RESUME_FILE = "saves/doomsav0.dsg";
 
 const $ = (selector) => document.querySelector(selector);
 const query = new URLSearchParams(location.search);
-const gameId = query.get("game") ?? "";
+const gameId = query.get("game");
 const hosting = query.has("host");
+const resumeId = query.get("resume");
 const playerName = (localStorage.getItem("doomq:name") || "Marine").slice(0, 20);
 const peerId = hosting ? SERVER_ID : newPeerId();
+const inboxPrefix = topics.packet(gameId, peerId, "");
 
 const inbox = [];
 const lastSeen = new Map(); // peer -> time of its last packet, the host counts players with it
+const waiting = new Map(); // topic -> callback for its retained message
 let lastError = "";
 
 function fail(message) {
@@ -37,26 +50,68 @@ function fail(message) {
 
 function describe(game) {
   $("#title").textContent = game.title;
-  $("#details").textContent = `${MODES[game.mode]} · ${game.map} · ${game.players}/${MAX_PLAYERS} players`;
+  $("#details").textContent = `${MODES[game.mode]} · ${game.map} · ${game.players}/${game.maxPlayers} players`;
 }
 
 function receive(topic, payload) {
+  waiting.get(topic)?.(payload);
   if (topic === topics.listing(gameId)) {
+    // Guests follow the host's listing
     const game = parseListing(payload);
     if (game) describe(game);
     else fail("The host left the game.");
-    return;
+  } else if (topic.startsWith(inboxPrefix)) {
+    const from = Number(topic.slice(inboxPrefix.length));
+    if (!Number.isInteger(from) || from < 1 || from > 0xffffffff) return;
+    inbox.push({ from, data: payload });
+    lastSeen.set(from, performance.now());
   }
-  const from = Number(topic.slice(topic.lastIndexOf("/") + 1));
-  if (!Number.isInteger(from) || from < 1 || from > 0xffffffff) return;
-  inbox.push({ from, data: payload });
-  lastSeen.set(from, performance.now());
 }
 
-function host(mqtt) {
-  const settings = settingsFromQuery(query);
-  let state = "waiting";
+const unpack = (data) =>
+  gunzip(data).catch(() => {
+    throw new Error("The saved game is damaged.");
+  });
 
+// The retained message on a topic, or null if there is none
+function retained(mqtt, topic, timeout = 5_000) {
+  return new Promise((resolve) => {
+    const done = (payload) => {
+      clearTimeout(timer);
+      waiting.delete(topic);
+      resolve(payload?.length ? payload : null);
+    };
+    const timer = setTimeout(done, timeout, null);
+    waiting.set(topic, done);
+    mqtt.subscribe(topic).catch(() => done(null));
+  });
+}
+
+async function host(mqtt) {
+  let settings = settingsFromQuery(query);
+  let maxPlayers = MAX_PLAYERS;
+  let resumedFrom;
+  let args = doomArgs(settings);
+  const files = {};
+
+  if (resumeId) {
+    const [summary, data] = await Promise.all([
+      retained(mqtt, topics.save(resumeId)),
+      retained(mqtt, topics.saveData(resumeId)),
+    ]);
+    const save = summary && parseSave(summary);
+    if (!save || !data) throw new Error("The saved game is gone.");
+    files[RESUME_FILE] = await unpack(data);
+    const { title, mode, skill, map, monsters, players } = save;
+    settings = { title, mode, skill, map, monsters };
+    maxPlayers = players;
+    resumedFrom = resumeId;
+    // Doom starts by itself once as many players as saved have joined.
+    // With fewer, the missing players' marines leave the game.
+    args = [...modeArgs(settings), "-loadgame", "0", "-nodes", String(players)];
+  }
+
+  let state = "waiting";
   const players = () => {
     for (const [peer, seen] of lastSeen) {
       if (performance.now() - seen > PRESENCE_WINDOW) lastSeen.delete(peer);
@@ -64,7 +119,7 @@ function host(mqtt) {
     return 1 + lastSeen.size;
   };
   const announce = () => {
-    const game = { ...settings, host: playerName, players: players(), state };
+    const game = { ...settings, host: playerName, players: players(), maxPlayers, state, resumedFrom };
     describe(game);
     mqtt.publish(topics.listing(gameId), JSON.stringify(game), { retain: true });
   };
@@ -77,12 +132,45 @@ function host(mqtt) {
   });
 
   return {
-    args: ["-server", "-servername", settings.title, ...doomArgs(settings)],
+    args: ["-server", "-servername", settings.title, ...args],
+    files,
+    hint: resumeId
+      ? `The game starts once ${maxPlayers} players have joined, or press Space to start now.`
+      : "Press Space in the waiting room once everyone has joined.",
     started() {
       state = "playing";
       announce();
+      setInterval(() => Module._G_AutoSave(), AUTOSAVE_INTERVAL);
+    },
+    // Every player saved the same tic, the host shares its copy
+    async saved(data) {
+      const header = readSaveHeader(data);
+      if (!header) return;
+      settings = { ...settings, skill: header.skill, map: header.map };
+      const summary = { ...settings, host: playerName, players: header.players, savedAt: Date.now() };
+      mqtt.publish(topics.saveData(gameId), await gzip(data), { retain: true });
+      mqtt.publish(topics.save(gameId), JSON.stringify(summary), { retain: true });
+      // The resumed game carries on from here
+      if (resumedFrom) deleteSave(mqtt, resumedFrom);
+      resumedFrom = undefined;
+      announce();
     },
   };
+}
+
+async function guest(mqtt) {
+  const listing = await retained(mqtt, topics.listing(gameId));
+  const game = listing && parseListing(listing);
+  if (!game) throw new Error("No such game.");
+  if (game.state !== "waiting") throw new Error("The game has already started.");
+
+  const files = {};
+  if (game.resumedFrom) {
+    const data = await retained(mqtt, topics.saveData(game.resumedFrom));
+    if (!data) throw new Error("The saved game is gone.");
+    files[RESUME_FILE] = await unpack(data);
+  }
+  return { args: ["-connect", String(SERVER_ID)], files, hint: "The host starts the game once everyone has joined." };
 }
 
 function restoreSettings(FS) {
@@ -113,17 +201,21 @@ function startDoom(mqtt, role) {
   };
   addEventListener("visibilitychange", () => document.hidden && saveSettings());
   addEventListener("pagehide", saveSettings);
+  $("#hint").textContent = role.hint;
 
   window.Module = {
     arguments: [
-      ...["-iwad", "freedoom1.wad", "-config", "default.cfg", "-extraconfig", "doomq.cfg"],
+      ...["-iwad", "freedoom1.wad", "-config", "default.cfg", "-extraconfig", "doomq.cfg", "-savedir", "saves"],
       ...["-window", "-nogui", "-pet", playerName, ...role.args],
     ],
     canvas: $("#canvas"),
     preRun: [
       () => {
-        Module.FS.createPreloadedFile("/", "freedoom1.wad", "freedoom1.wad", true, false);
-        restoreSettings(Module.FS);
+        const { FS } = Module;
+        FS.createPreloadedFile("/", "freedoom1.wad", "freedoom1.wad", true, false);
+        restoreSettings(FS);
+        FS.mkdir("saves");
+        for (const [path, data] of Object.entries(role.files)) FS.writeFile(path, data);
       },
     ],
     // Doom reports progress as "doom: <code>, <text>" lines on stdout
@@ -134,6 +226,8 @@ function startDoom(mqtt, role) {
         $("#hint").hidden = true;
         role.started?.();
       }
+      const saved = line.match(/^doom: 13, saved (.+)$/);
+      if (saved) role.saved?.(Module.FS.readFile(saved[1]));
     },
     printErr(line) {
       console.warn(line);
@@ -156,11 +250,8 @@ function startDoom(mqtt, role) {
 }
 
 for (const a of document.querySelectorAll(".back")) a.href = link("index.html");
-$("#hint").textContent = hosting
-  ? "Press Space in the waiting room once everyone has joined."
-  : "The host starts the game once everyone has joined.";
 
-if (!/^[0-9a-f]{12}$/.test(gameId)) {
+if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
 } else {
   try {
@@ -169,8 +260,7 @@ if (!/^[0-9a-f]{12}$/.test(gameId)) {
     mqtt.onmessage = receive;
     mqtt.onclose = () => fail("Lost connection to the broker.");
     await mqtt.subscribe(topics.inbox(gameId, peerId));
-    if (!hosting) await mqtt.subscribe(topics.listing(gameId));
-    startDoom(mqtt, hosting ? host(mqtt) : { args: ["-connect", String(SERVER_ID)] });
+    startDoom(mqtt, await (hosting ? host(mqtt) : guest(mqtt)));
     $("#canvas").focus();
   } catch (error) {
     fail(error.message);

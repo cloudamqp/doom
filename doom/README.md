@@ -15,6 +15,8 @@
   never sleep, so they can run from anywhere.
 - Settings are saved on demand (`M_SaveDefaults` is exported), the page keeps
   them between visits.
+- `G_AutoSave` is exported for the page's autosave timer, and the savegame size
+  limit is off: some Freedoom maps outgrow vanilla's 180 KB.
 - Fatal errors stop the game loop, and connections time out after 10 s instead of 4 s.
 
 ## Build
@@ -36,6 +38,7 @@ The game prints `doom: <code>, <text>` lines on stdout for the page to act on:
 | 10   | game started |
 | 11   | entering fullscreen |
 | 12   | a client timed out (server only) |
+| 13   | saved, with the savegame's path |
 
 ## License
 

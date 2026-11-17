@@ -21,6 +21,8 @@ their tab.
 |----------------------------------|----------|------------------------------------------------------|
 | `doomq/lobby/<game>`             | yes      | the host every 5 s: title, mode, map, players, state |
 | `doomq/games/<game>/<to>/<from>` | no       | every peer, one Doom packet per message              |
+| `doomq/saves/<game>`             | yes      | the host on every save: title, mode, map, players    |
+| `doomq/savedata/<game>`          | yes      | the host on every save: the gzipped savegame         |
 
 - The lobby subscribes to `doomq/lobby/+`, retained messages list running games
   to new visitors at once.
@@ -33,6 +35,22 @@ their tab.
   resends what goes missing.
 
 `web/js/mqtt.js` is a small MQTT 3.1.1 client with just what this needs.
+
+### Saved games
+
+- The host autosaves every 2 minutes, and players can save from Doom's menu.
+  The request travels with that player's input, so every player saves the
+  same tic. The host shares its copy, each game keeps only its latest save.
+- The lobby lists saved games whose game has ended. Resume hosts a new game
+  that loads the save on every player's side.
+- A savegame records which of the four player slots were in use. A resumed
+  game starts by itself once that many players have joined. The host can
+  start it earlier with fewer, and the missing players' marines leave the
+  game. More can't join: Doom would have no marine for them.
+- Saves expire after 24 hours, the lobby deletes expired ones it sees. A
+  resumed game's first save replaces the save it was resumed from.
+- A save is 17 to 300 KB depending on the map, 120 KB on average across
+  Freedoom's 36 maps, and a fifth of that gzipped: up to 60 KB per game.
 
 ## Development
 
