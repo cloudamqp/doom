@@ -1,5 +1,5 @@
 //
-// Copyright(C) 2005-2014 Simon Howard
+// Copyright(C) 2026 84codes AB
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -12,15 +12,14 @@
 // GNU General Public License for more details.
 //
 // DESCRIPTION:
-//     Networking module which uses SDL_net
+//     Network module that sends packets over MQTT
 //
 
-#ifndef NET_SDL_H
-#define NET_SDL_H
+#ifndef NET_MQTT_H
+#define NET_MQTT_H
 
 #include "net_defs.h"
 
-extern net_module_t net_websockets_module;
+extern net_module_t net_mqtt_module;
 
-#endif /* #ifndef NET_SDL_H */
-
+#endif /* #ifndef NET_MQTT_H */

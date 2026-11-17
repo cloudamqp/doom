@@ -36,7 +36,6 @@
 #include "net_loop.h"
 #include "net_packet.h"
 #include "net_query.h"
-#include "net_websockets.h"
 #include "net_server.h"
 #include "net_structrw.h"
 

@@ -15,7 +15,7 @@
 // DESCRIPTION:  none
 //
 
-#include <emscripten/websocket.h>
+#include <emscripten/html5.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
