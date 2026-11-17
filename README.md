@@ -77,7 +77,9 @@ Set up the broker with an administrator's AMQP URL:
 It writes the `wss://` URL for the web app to `web/js/config.js`, after
 checking that MQTT over WebSocket works with it. Then build the image and
 host it anywhere, or set the URL when the container starts with
-`-e BROKER_URL=wss://...`. The script expects the HTTP API at `https://host`
+`-e BROKER_URL=wss://...`. Serving `web/` from another web server, send
+`Cache-Control: no-cache`: without it, browsers may mix cached files from
+an old deploy with new ones. The script expects the HTTP API at `https://host`
 for `amqps://` and `http://host:15672` for `amqp://`.
 
 Every player gets the credentials, so the setup limits what they allow:
