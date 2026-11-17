@@ -367,7 +367,8 @@ boolean D_GrabMouseCallback(void)
 //
 //  D_RunFrame
 //
-void D_RunFrame()
+// Never sleeps: the browser calls this again for the next frame
+EMSCRIPTEN_KEEPALIVE void D_RunFrame()
 {
     int nowtime;
     int tics;
@@ -375,11 +376,11 @@ void D_RunFrame()
     static boolean wipe;
 
     if (wipe) {
-        do {
-            nowtime = I_GetTime();
-            tics = nowtime - wipestart;
-            I_Sleep(1);
-        } while (tics <= 0);
+        nowtime = I_GetTime();
+        tics = nowtime - wipestart;
+        if (tics <= 0) {
+            return;
+        }
 
         wipestart = nowtime;
         wipe = !wipe_ScreenWipe(wipe_Melt, 0, 0, SCREENWIDTH, SCREENHEIGHT, tics);
@@ -414,8 +415,47 @@ void D_RunFrame()
 //
 //  D_DoomLoop
 //
+// Browsers stop requestAnimationFrame in hidden tabs and run their timers
+// about once a second, which would stall the lockstep game for every player.
+// Timers in workers keep their pace, so a worker runs the frames instead.
+EM_JS(void, JS_RunFramesEvery, (int ms), {
+    if (!Module.frameClock) {
+        const source = 'onmessage = (e) => { clearInterval(self.timer); if (e.data) self.timer = setInterval(() => postMessage(0), e.data); };';
+        Module.frameClock = new Worker(URL.createObjectURL(new Blob([source])));
+        Module.frameClock.onmessage = () => {
+            try {
+                _D_RunFrame();
+            } catch (e) {
+                Module.frameClock.terminate();
+                if (e !== 'unwind' && e?.name !== 'ExitStatus') throw e;
+            }
+        };
+    }
+    Module.frameClock.postMessage(ms);
+});
+
+static void D_SetHidden(boolean hidden)
+{
+    if (hidden) {
+        emscripten_pause_main_loop();
+        JS_RunFramesEvery(1000 / TICRATE);
+    }
+    else {
+        JS_RunFramesEvery(0);
+        emscripten_resume_main_loop();
+    }
+}
+
+static bool D_VisibilityChanged(int type, const EmscriptenVisibilityChangeEvent *event, void *data)
+{
+    D_SetHidden(event->hidden);
+    return true;
+}
+
 void D_DoomLoop(void)
 {
+    EmscriptenVisibilityChangeEvent visibility;
+
     if (gamevariant == bfgedition && (demorecording || (gameaction == ga_playdemo) || netgame)) {
         printf(" WARNING: You are playing using one of the Doom Classic\n"
                " IWAD files shipped with the Doom 3: BFG Edition. These are\n"
@@ -438,6 +478,11 @@ void D_DoomLoop(void)
     I_GraphicsCheckCommandLine();
     I_SetGrabMouseCallback(D_GrabMouseCallback);
     I_InitGraphics();
+
+    emscripten_set_visibilitychange_callback(NULL, false, D_VisibilityChanged);
+    if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS && visibility.hidden) {
+        D_SetHidden(true);
+    }
     EnableLoadingDisk();
 
     TryRunTics();

@@ -10,6 +10,9 @@
 - `boolean` has the same size in every file (backported from [chocolate-doom#1723][3]).
 - The OPL music emulator starts without waiting for audio, which browsers hold
   back until the user interacts with the page.
+- Hidden tabs keep playing: a Web Worker's timer runs the frames there, as
+  browsers stop animation frames and throttle timers in hidden tabs. Frames
+  never sleep, so they can run from anywhere.
 - Fatal errors stop the game loop, and connections time out after 10 s instead of 4 s.
 
 ## Build

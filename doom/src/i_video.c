@@ -1381,6 +1381,11 @@ void I_InitGraphics(void)
 
     SetSDLVideoDriver();
 
+    // Every frame returns to the browser, so SDL needn't sleep after
+    // presenting it. That sleep would also let the frame clock of a hidden
+    // tab run a new frame while the last one is still suspended.
+    SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+
     if (SDL_Init(SDL_INIT_VIDEO) < 0) 
     {
         I_Error("Failed to initialize video: %s", SDL_GetError());

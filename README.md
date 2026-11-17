@@ -45,7 +45,8 @@ Emscripten in `~/emsdk` unless `emcc` is already on `PATH`, as in the
 [emsdk image][4].
 
     npm install
-    npm test    # needs the broker and the web app on :8080
+    npm test    # needs the broker and the web app on :8080, and a display
+                # for the hidden tab test, e.g. xvfb-run npm test
 
 Add `?broker=wss://user:pass@host/mqtt` to the lobby URL to use another broker.
 
@@ -66,8 +67,10 @@ the URL when the container starts instead.
 
 ## Limitations
 
-- Browsers pause hidden tabs, which pauses the game for everyone. After 10 s
-  that player is dropped, or the game ends if it was the host.
+- Hidden tabs keep playing: browsers stop animation frames there and throttle
+  timers, so a Web Worker's timer runs the game instead. Browsers that suspend
+  background tabs entirely, like on phones, pause the game for everyone, and
+  after 10 s that player is dropped, or the game ends if it was the host.
 - Doom has no drop-in: join before the host starts. 4 players at most.
 - Sound starts on the first click or key press.
 
