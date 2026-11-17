@@ -84,6 +84,15 @@ static opl_init_result_t InitDriver(opl_driver_t *_driver,
     // (it's done twice, like how Doom does it).
 
     driver = _driver;
+
+#ifdef __EMSCRIPTEN__
+    // The emulator is the only driver and is always there. Detecting it
+    // would block on audio callbacks, which the browser holds back until
+    // the user has interacted with the page.
+    printf("OPL_Init: Using driver '%s'.\n", driver->name);
+    return OPL_INIT_OPL3;
+#endif
+
     init_stage_reg_writes = 1;
 
     result1 = OPL_Detect();
