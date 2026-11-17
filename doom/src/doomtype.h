@@ -99,12 +99,19 @@
 // standard and defined to include stdint.h, so include this. 
 
 #include <inttypes.h>
+#include <stdbool.h>
 
 #if defined(__cplusplus) || defined(__bool_true_false_are_defined)
 
-// Use builtin bool type with C++.
+// The C++/C99 bool type (or _Bool that is) can only have two values:
+// 0 or 1. However, the Doom source code assumes any non-zero value
+// to evaluate to true, so we have to use an int type here.
+//
+// Backported from chocolate-doom#1723: some files include stdbool.h
+// (via emscripten/html5.h) and others did not, which gave boolean two
+// different sizes and mismatched struct layouts between files.
 
-typedef bool boolean;
+typedef int boolean;
 
 #else
 
