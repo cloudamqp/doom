@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DooMQ</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="js/lobby.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>DooMQ</h1>
+      <p>Doom multiplayer over MQTT, brokered by LavinMQ</p>
+      <span id="status">Connecting…</span>
+    </header>
+    <main>
+      <label class="name">Your name <input id="name" maxlength="20" placeholder="Marine" autocomplete="nickname" /></label>
+
+      <h2>Games</h2>
+      <table id="games">
+        <thead>
+          <tr><th>Game</th><th>Host</th><th>Mode</th><th>Map</th><th>Skill</th><th>Players</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="empty" class="muted">No games yet, start one below.</p>
+
+      <h2>New game</h2>
+      <form id="create">
+        <label>Title <input name="title" maxlength="40" placeholder="Rip and tear" /></label>
+        <label>Mode <select name="mode"></select></label>
+        <label>Skill <select name="skill"></select></label>
+        <label>Map <select name="map"></select></label>
+        <label class="check"><input type="checkbox" name="monsters" checked /> Monsters</label>
+        <button>Create game</button>
+      </form>
+    </main>
+    <footer>
+      <a href="https://github.com/84codes/lavinmq-workshop/tree/mqtt-doom">Source</a> ·
+      <a href="https://lavinmq.com">LavinMQ</a> ·
+      <a href="https://freedoom.github.io">Freedoom</a> ·
+      <a href="https://www.chocolate-doom.org">Chocolate Doom</a>
+    </footer>
+  </body>
+</html>

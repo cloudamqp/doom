@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DooMQ</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="js/play.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="back" href="index.html">← Lobby</a>
+      <div>
+        <h1 id="title">Connecting…</h1>
+        <p id="details"></p>
+      </div>
+    </header>
+    <main class="game">
+      <!-- no border or padding on the canvas, SDL maps mouse coordinates 1:1 -->
+      <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+      <p id="hint" class="muted"></p>
+      <p class="muted">WASD move · mouse turn · click or Space fire · E use · Shift run · F fullscreen</p>
+    </main>
+    <div id="overlay" hidden>
+      <p id="message"></p>
+      <a class="back button" href="index.html">Back to lobby</a>
+    </div>
+  </body>
+</html>
