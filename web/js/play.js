@@ -15,6 +15,8 @@ import {
 // Doom peers send a keepalive at least every 2 s
 const PRESENCE_WINDOW = 5_000;
 const ANNOUNCE_INTERVAL = 5_000;
+// Doom's settings (volume, keys, mouse, ...), kept between visits
+const SETTINGS = ["default.cfg", "doomq.cfg"];
 
 const $ = (selector) => document.querySelector(selector);
 const query = new URLSearchParams(location.search);
@@ -83,20 +85,52 @@ function host(mqtt) {
   };
 }
 
+function restoreSettings(FS) {
+  for (const file of SETTINGS) {
+    try {
+      const text = localStorage.getItem(`doomq:${file}`);
+      if (text) FS.writeFile(file, text);
+    } catch {}
+  }
+  if (!FS.analyzePath("default.cfg").exists) FS.createPreloadedFile("/", "default.cfg", "default.cfg", true, true);
+}
+
+// Doom itself only writes its settings when it quits
+function storeSettings(FS) {
+  for (const file of SETTINGS) {
+    try {
+      localStorage.setItem(`doomq:${file}`, FS.readFile(file, { encoding: "utf8" }));
+    } catch {}
+  }
+}
+
 function startDoom(mqtt, role) {
+  let running = false;
+  const saveSettings = () => {
+    if (!running) return; // before Doom has read them, this would reset them
+    Module._M_SaveDefaults();
+    storeSettings(Module.FS);
+  };
+  addEventListener("visibilitychange", () => document.hidden && saveSettings());
+  addEventListener("pagehide", saveSettings);
+
   window.Module = {
-    arguments: ["-iwad", "freedoom1.wad", "-config", "default.cfg", "-window", "-nogui", "-pet", playerName, ...role.args],
+    arguments: [
+      ...["-iwad", "freedoom1.wad", "-config", "default.cfg", "-extraconfig", "doomq.cfg"],
+      ...["-window", "-nogui", "-pet", playerName, ...role.args],
+    ],
     canvas: $("#canvas"),
     preRun: [
       () => {
         Module.FS.createPreloadedFile("/", "freedoom1.wad", "freedoom1.wad", true, false);
-        Module.FS.createPreloadedFile("/", "default.cfg", "default.cfg", true, true);
+        restoreSettings(Module.FS);
       },
     ],
     // Doom reports progress as "doom: <code>, <text>" lines on stdout
     print(line) {
       console.log(line);
       if (line.startsWith("doom: 10,")) {
+        running = true;
         $("#hint").hidden = true;
         role.started?.();
       }
@@ -105,7 +139,12 @@ function startDoom(mqtt, role) {
       console.warn(line);
       if (line.trim()) lastError = line.replace(/^doom: \d+, /, "");
     },
-    onExit: (status) => fail(status === 0 ? "You left the game." : lastError),
+    onExit: (status) => {
+      // Quitting saved the settings, an error didn't
+      if (status === 0) storeSettings(Module.FS);
+      running = false;
+      fail(status === 0 ? "You left the game." : lastError);
+    },
     // Used by doom/src/net_mqtt.c
     net: {
       connected: () => mqtt.connected,
