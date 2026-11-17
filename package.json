@@ -1,0 +1,11 @@
+{
+  "name": "doomq",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.43.1"
+  }
+}
