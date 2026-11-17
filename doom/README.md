@@ -13,6 +13,8 @@
 - Hidden tabs keep playing: a Web Worker's timer runs the frames there, as
   browsers stop animation frames and throttle timers in hidden tabs. Frames
   never sleep, so they can run from anywhere.
+- Settings are saved on demand (`M_SaveDefaults` is exported), the page keeps
+  them between visits.
 - Fatal errors stop the game loop, and connections time out after 10 s instead of 4 s.
 
 ## Build

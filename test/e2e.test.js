@@ -129,6 +129,21 @@ test("players join a game and play it over MQTT", async () => {
   assert.match(await lobby.$eval("#message", (p) => p.textContent), /could not join/);
 });
 
+test("Doom settings outlive the page", async () => {
+  const host = await player("Tweaker");
+  const defaults = await (await fetch(`${WEB_URL}/default.cfg`)).text();
+  const config = defaults.replace(/^music_volume\s+\d+$/m, "music_volume                  3");
+  await host.evaluate((config) => localStorage.setItem("doomq:default.cfg", config), config);
+  await createGame(host, `Settings ${Date.now().toString(36)}`);
+  await launch(host);
+
+  // Leaving saves what Doom has in memory, which it loaded from storage
+  await host.goto(`${WEB_URL}/index.html`);
+  const saved = await host.evaluate(() => [localStorage.getItem("doomq:default.cfg"), localStorage.getItem("doomq:doomq.cfg")]);
+  assert.match(saved[0], /^music_volume\s+3$/m);
+  assert.match(saved[1], /^player_name\s+"Tweaker"$/m);
+});
+
 test("a hidden tab keeps playing", { skip: !process.env.DISPLAY && "needs a display" }, async () => {
   // Muted, as Chrome spares tabs that play sound, and without the flags
   // Puppeteer adds to turn background throttling off

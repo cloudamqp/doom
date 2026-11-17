@@ -12,7 +12,8 @@ CFLAGS  := -O2 -I. -Isrc -Isrc/doom -Itextscreen -Iopl -Ipcsound $(PORTS)
 # ASYNCIFY lets Doom's blocking loops sleep without freezing the browser.
 # Emscripten's default 64 KB stack is too small for Doom.
 LDFLAGS := -O2 $(PORTS) -sASYNCIFY -sSTACK_SIZE=5MB -sALLOW_MEMORY_GROWTH -sFORCE_FILESYSTEM \
-           -sEXIT_RUNTIME -sENVIRONMENT=web -sEXPORTED_RUNTIME_METHODS=FS
+           -sEXIT_RUNTIME -sENVIRONMENT=web -sEXPORTED_RUNTIME_METHODS=FS \
+           -sEXPORTED_FUNCTIONS=_main,_M_SaveDefaults
 
 $(OUT)/doom.js: $(OBJ)
 	emcc $(LDFLAGS) $(OBJ) -o $@
