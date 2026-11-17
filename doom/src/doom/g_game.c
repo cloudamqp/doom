@@ -15,6 +15,7 @@
 // DESCRIPTION:  none
 //
 
+#include <emscripten.h>
 #include <emscripten/html5.h>
 #include <math.h>
 #include <stdlib.h>
@@ -105,6 +106,9 @@ int timelimit;
 boolean paused;
 boolean sendpause; // send a pause event next tic
 boolean sendsave;  // send a save event next tic
+
+// The last of the eight save slots, the menu shows it like the others
+#define AUTOSAVE_SLOT 7
 boolean usergame;  // ok to save / end game
 
 boolean timingdemo; // if true, exit with report on completion
@@ -206,7 +210,9 @@ static char savedescription[32];
 mobj_t *bodyque[BODYQUESIZE];
 int bodyqueslot;
 
-int vanilla_savegame_limit = 1;
+// Off: Freedoom's maps can outgrow vanilla's 180 KB savegame buffer, and an
+// overrun would end an autosaved netgame for every player
+int vanilla_savegame_limit = 0;
 int vanilla_demo_limit = 1;
 
 int G_CmdChecksum(ticcmd_t *cmd)
@@ -1420,6 +1426,15 @@ void G_SaveGame(int slot, char *description)
     sendsave = true;
 }
 
+// Called by the page every few minutes. The request rides in this player's
+// next ticcmd, so in a netgame every player saves at the same tic.
+EMSCRIPTEN_KEEPALIVE void G_AutoSave(void)
+{
+    if (gamestate == GS_LEVEL && gameaction == ga_nothing && !demoplayback) {
+        G_SaveGame(AUTOSAVE_SLOT, "AUTOSAVE");
+    }
+}
+
 void G_DoSaveGame(void)
 {
     char *savegame_file;
@@ -1483,6 +1498,9 @@ void G_DoSaveGame(void)
 
     remove(savegame_file);
     rename(temp_savegame_file, savegame_file);
+
+    // The page shares saves through the broker, see web/js/play.js
+    printf("doom: 13, saved %s\n", savegame_file);
 
     gameaction = ga_nothing;
     M_StringCopy(savedescription, "", sizeof(savedescription));

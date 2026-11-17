@@ -1,11 +1,26 @@
 import { MqttClient } from "./mqtt.js";
-import { MAPS, MAX_PLAYERS, MODES, SKILLS, brokerUrl, link, newGameId, parseListing, topics } from "./doomq.js";
+import {
+  MAPS,
+  MODES,
+  SKILLS,
+  brokerUrl,
+  deleteSave,
+  link,
+  newGameId,
+  parseListing,
+  parseSave,
+  topics,
+} from "./doomq.js";
 
 // Hosts refresh their listing every 5 s, so a quiet one is gone
 const STALE_AFTER = 15_000;
+// Saves are for picking a game up again later today, not for keeping
+const SAVE_TTL = 24 * 60 * 60_000;
+const MAX_SAVES_SHOWN = 20;
 
 const $ = (selector) => document.querySelector(selector);
 const games = new Map(); // id -> { game, seen }
+const saves = new Map(); // id -> save summary
 
 function element(tag, text, attrs = {}) {
   const el = Object.assign(document.createElement(tag), attrs);
@@ -17,29 +32,49 @@ function fillSelect(select, options, selected) {
   for (const [value, label] of options) select.append(element("option", label, { value, selected: String(value) === String(selected) }));
 }
 
+function row(cells, action) {
+  const tr = element("tr");
+  tr.append(...cells.map((text) => element("td", text)), element("td"));
+  tr.lastChild.append(action);
+  return tr;
+}
+
+function ago(time) {
+  const minutes = Math.floor((Date.now() - time) / 60_000);
+  if (minutes < 1) return "just now";
+  return minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`;
+}
+
 function render() {
-  const rows = [...games.entries()]
+  const gameRows = [...games.entries()]
     .sort(([, a], [, b]) => a.game.title.localeCompare(b.game.title))
     .map(([id, { game }]) => {
-      const joinable = game.state === "waiting" && game.players < MAX_PLAYERS;
+      const joinable = game.state === "waiting" && game.players < game.maxPlayers;
       const action = joinable
         ? element("a", "Join", { href: link("play.html", { game: id }), className: "button" })
         : element("span", game.state === "playing" ? "In progress" : "Full", { className: "muted" });
-      const tr = element("tr");
-      tr.append(
-        element("td", game.title.slice(0, 40)),
-        element("td", game.host.slice(0, 20)),
-        element("td", MODES[game.mode]),
-        element("td", game.map),
-        element("td", SKILLS[game.skill - 1]),
-        element("td", `${game.players}/${MAX_PLAYERS}`),
-        element("td"),
-      );
-      tr.lastChild.append(action);
-      return tr;
+      const cells = [game.title, game.host, MODES[game.mode], game.map, SKILLS[game.skill - 1]];
+      return row([...cells.map((text) => text.slice(0, 40)), `${game.players}/${game.maxPlayers}`], action);
     });
-  $("#games tbody").replaceChildren(...rows);
-  $("#empty").hidden = rows.length > 0;
+  $("#games tbody").replaceChildren(...gameRows);
+  $("#empty").hidden = gameRows.length > 0;
+
+  // A game that is still running, or already being resumed, can't be resumed
+  const busy = new Set([...games.entries()].flatMap(([id, { game }]) => [id, game.resumedFrom]));
+  const saveRows = [...saves.entries()]
+    .filter(([id]) => !busy.has(id))
+    .sort(([, a], [, b]) => b.savedAt - a.savedAt)
+    .slice(0, MAX_SAVES_SHOWN)
+    .map(([id, save]) => {
+      const resume = element("a", "Resume", {
+        href: link("play.html", { game: newGameId(), host: 1, resume: id }),
+        className: "button",
+      });
+      const cells = [save.title, save.host, MODES[save.mode], save.map];
+      return row([...cells.map((text) => text.slice(0, 40)), String(save.players), ago(save.savedAt)], resume);
+    });
+  $("#saves tbody").replaceChildren(...saveRows);
+  $("#saved").hidden = saveRows.length === 0;
 }
 
 function setStatus(text, ok = false) {
@@ -72,14 +107,29 @@ form.addEventListener("submit", (event) => {
 try {
   const mqtt = await MqttClient.connect(brokerUrl);
   mqtt.onclose = () => setStatus("Disconnected from broker, reload to retry");
+
+  // Every visitor helps keep the broker tidy
+  const expire = (id, save) => {
+    if (Date.now() - save.savedAt < SAVE_TTL) return false;
+    saves.delete(id);
+    deleteSave(mqtt, id);
+    return true;
+  };
+
   mqtt.onmessage = (topic, payload) => {
-    const id = topic.split("/")[2];
-    const game = parseListing(payload);
-    if (game) games.set(id, { game, seen: performance.now() });
-    else games.delete(id);
+    const [, kind, id] = topic.split("/");
+    if (kind === "lobby") {
+      const game = parseListing(payload);
+      if (game) games.set(id, { game, seen: performance.now() });
+      else games.delete(id);
+    } else {
+      const save = parseSave(payload);
+      if (save && !expire(id, save)) saves.set(id, save);
+      else saves.delete(id);
+    }
     render();
   };
-  await mqtt.subscribe(topics.lobby);
+  await Promise.all([mqtt.subscribe(topics.lobby), mqtt.subscribe(topics.saves)]);
   setStatus("Connected", true);
 
   // Clear listings whose host vanished without its last will firing,
@@ -90,6 +140,7 @@ try {
       games.delete(id);
       mqtt.publish(topics.listing(id), "", { retain: true });
     }
+    for (const [id, save] of saves) expire(id, save);
     render();
   }, 5_000);
 } catch (error) {
