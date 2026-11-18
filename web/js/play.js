@@ -40,7 +40,7 @@ const inboxPrefix = topics.packet(gameId, peerId, "");
 const inbox = [];
 const lastSeen = new Map(); // peer -> time of its last packet, the host counts players with it
 const waiting = new Map(); // topic -> callback for its retained message
-let lastError = "";
+let error = "The game crashed.";
 
 function fail(message) {
   $("#message").textContent = message;
@@ -261,15 +261,16 @@ function startDoom(mqtt, role, wad) {
       const saved = line.match(/^doom: 13, saved (.+)$/);
       if (saved) role.saved?.(Module.FS.readFile(saved[1]));
     },
-    printErr(line) {
-      console.warn(line);
-      if (line.trim()) lastError = line.replace(/^doom: \d+, /, "");
+    printErr: (line) => console.warn(line),
+    // Called by I_Error, see doom/src/i_system.c
+    onError(message) {
+      error = message.replace(/^doom: \d+, /, "").trim();
     },
     onExit: (status) => {
       // Quitting saved the settings, an error didn't
       if (status === 0) storeSettings(Module.FS);
       running = false;
-      fail(status === 0 ? "You left the game." : lastError);
+      fail(status === 0 ? "You left the game." : error);
     },
     // Used by doom/src/net_mqtt.c
     net: {

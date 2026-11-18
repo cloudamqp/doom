@@ -17,7 +17,13 @@
   them between visits.
 - `G_AutoSave` is exported for the page's autosave timer, and the savegame size
   limit is off: some Freedoom maps outgrow vanilla's 180 KB.
-- Fatal errors stop the game loop, and connections time out after 10 s instead of 4 s.
+- Fatal errors stop the game loop and go to `Module.onError` before the
+  shutdown messages, and connections time out after 10 s instead of 4 s.
+- Co-op respawns on Freedoom's E4M1-E4M3, whose player starts face 360°, no
+  longer fail with "G_CheckSpot: unexpected angle 8192" (backported from
+  [chocolate-doom#1823][5]).
+- The server's deadlock check reads its receive window the right way round
+  (backported from [chocolate-doom@8aa4ed6][6]).
 
 ## Build
 
@@ -48,3 +54,5 @@ GNU GPL v2, see `COPYING.md`.
 [2]: https://github.com/cloudflare/doom-wasm
 [3]: https://github.com/chocolate-doom/chocolate-doom/pull/1723
 [4]: https://hub.docker.com/r/emscripten/emsdk
+[5]: https://github.com/chocolate-doom/chocolate-doom/pull/1823
+[6]: https://github.com/chocolate-doom/chocolate-doom/commit/8aa4ed6c01c19b934e64d012ac304eaf1a777607

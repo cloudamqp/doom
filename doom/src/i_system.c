@@ -48,6 +48,12 @@
 #include "w_wad.h"
 #include "z_zone.h"
 
+// Hands an error to the page, shutdown messages follow it on stderr
+EM_JS_DEPS(i_error, "$UTF8ToString");
+EM_JS(void, JS_Error, (const char *message), {
+    Module.onError?.(UTF8ToString(message));
+});
+
 #define DEFAULT_RAM 16 /* MiB */
 #define MIN_RAM 4      /* MiB */
 
@@ -277,6 +283,7 @@ void I_Error(const char *error, ...)
     memset(msgbuf, 0, sizeof(msgbuf));
     M_vsnprintf(msgbuf, sizeof(msgbuf), error, argptr);
     va_end(argptr);
+    JS_Error(msgbuf);
 
     // Shutdown. Here might be other errors.
 
