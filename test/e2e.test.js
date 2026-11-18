@@ -4,6 +4,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import puppeteer from "puppeteer";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { MqttClient } from "../web/js/mqtt.js";
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:8080";
@@ -181,6 +182,31 @@ test("a saved game can be resumed", async () => {
   await sleep(1_000);
   const resumable = await watcher.$$eval("#saves a", (links) => links.map((a) => new URL(a.href).searchParams.get("resume")));
   assert.ok(!resumable.includes(savedId), "the old save is still there");
+});
+
+test("Doom's errors reach the player", async () => {
+  const [host, lobby] = await Promise.all([player("Breaker"), player("Lou")]);
+  const title = `Broken ${Date.now().toString(36)}`;
+  await createGame(host, title, "coop");
+  await launch(host);
+
+  // Damage the save's end of file marker, its last byte
+  const game = new URL(host.url()).searchParams.get("game");
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const stored = new Promise((resolve) => (mqtt.onmessage = (topic, payload) => resolve(payload)));
+  await mqtt.subscribe(`doomq/savedata/${game}`);
+  await autosave(host);
+  const data = gunzipSync(await stored);
+  data[data.length - 1] ^= 0xff;
+  mqtt.publish(`doomq/savedata/${game}`, gzipSync(data), { retain: true });
+  mqtt.close();
+  await host.close();
+
+  // Doom's error, not the shutdown messages that follow it on stderr
+  const save = await lobby.waitForSelector(savedGame(title));
+  await Promise.all([lobby.waitForNavigation(), save.$eval("a", (a) => a.click())]);
+  await lobby.waitForSelector("#overlay:not([hidden])", { timeout: 30_000 });
+  assert.equal(await lobby.$eval("#message", (p) => p.textContent), "Bad savegame");
 });
 
 test("Doom settings outlive the page", async () => {

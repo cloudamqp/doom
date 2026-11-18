@@ -1020,12 +1020,13 @@ boolean G_CheckSpot(int playernum, mapthing_t *mthing)
 
     {
         fixed_t xa, ya;
-        signed int an;
 
-        // This calculation overflows in Vanilla Doom, but here we deliberately
-        // avoid integer overflow as it is undefined behavior, so the value of
-        // 'an' will always be positive.
-        an = (ANG45 >> ANGLETOFINESHIFT) * ((signed int)mthing->angle / 45);
+        // This calculation overflows in Vanilla Doom, so use unsigned arithmetic
+        // for a defined wraparound. 'an' is then always within [0, 8191].
+        // Backported from chocolate-doom#1823: Freedoom E4M1-E4M3 have player
+        // starts at 360 degrees, which made co-op respawns there fail below.
+        const uint32_t k = (uint32_t)((signed int)mthing->angle / 45);
+        const int an = (int)(((uint32_t)ANG45 * k) >> ANGLETOFINESHIFT);
 
         switch (an) {
         case 4096:                  // -4096:
@@ -1056,7 +1057,9 @@ boolean G_CheckSpot(int playernum, mapthing_t *mthing)
             xa = ya = 0;
             break;
         }
-        mo = P_SpawnMobj(x + 20 * xa, y + 20 * ya, ss->sector->floorheight, MT_TFOG);
+        // Vanilla Doom wraps around here (20 * finetangent[0] overflows).
+        mo = P_SpawnMobj((fixed_t)(x + 20 * (int64_t)xa), (fixed_t)(y + 20 * (int64_t)ya), ss->sector->floorheight,
+                         MT_TFOG);
     }
 
     if (players[consoleplayer].viewz != 1) S_StartSound(mo, sfx_telept); // don't start sound on first frame
