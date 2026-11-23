@@ -95,16 +95,27 @@
 
       <section class="wire">
         <h2>Under the hood</h2>
-        <p>The host's browser tab runs the Doom server. There is no backend, only static files and LavinMQ.</p>
+        <p>
+          LavinMQ is the backend: every browser connects to it with MQTT over WebSockets, and it carries all of the game's
+          traffic. The Doom server runs in the host's browser tab, and the rest is static files.
+        </p>
         <dl>
-          <dt><code>doomq/lobby/&lt;game&gt;</code></dt>
-          <dd>The host keeps a retained listing here. Its last will clears the listing when the tab closes.</dd>
-          <dt><code>doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;</code></dt>
-          <dd>One message per Doom packet. Players send their moves to the host, and the host sends everyone's moves back.</dd>
-          <dt><code>doomq/saves/&lt;game&gt;</code></dt>
-          <dd>Autosaves every two minutes, retained in the broker, so the lobby can offer to resume a game.</dd>
-          <dt><code>doomq/watch/&lt;game&gt;</code></dt>
-          <dd>Where the players and monsters are, and the scores, nine times a second, for anyone who wants to watch.</dd>
+          <div>
+            <dt><code>doomq/lobby/&lt;game&gt;</code></dt>
+            <dd>The host keeps a retained listing here. Its last will clears the listing when the tab closes.</dd>
+          </div>
+          <div>
+            <dt><code>doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;</code></dt>
+            <dd>One message per Doom packet. Players send their moves to the host, and the host sends everyone's moves back.</dd>
+          </div>
+          <div>
+            <dt><code>doomq/saves/&lt;game&gt;</code></dt>
+            <dd>Autosaves every two minutes, retained in the broker, so the lobby can offer to resume a game.</dd>
+          </div>
+          <div>
+            <dt><code>doomq/watch/&lt;game&gt;</code></dt>
+            <dd>Where the players and monsters are, and the scores, nine times a second, for anyone who wants to watch.</dd>
+          </div>
         </dl>
       </section>
     </main>
