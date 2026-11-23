@@ -296,8 +296,32 @@ static void CheckAutoLaunch(void)
     }
 }
 
+// Bots run without a screen (-nodraw), and so without the waiting room
+static void WaitWithoutScreen(void)
+{
+    ParseCommandLineArgs();
+
+    while (net_waiting_for_launch) {
+        CheckAutoLaunch();
+
+        NET_CL_Run();
+        NET_SV_Run();
+
+        if (!net_client_connected) {
+            I_Error("Lost connection to server");
+        }
+
+        I_Sleep(100);
+    }
+}
+
 void NET_WaitForLaunch(void)
 {
+    if (M_ParmExists("-nodraw")) {
+        WaitWithoutScreen();
+        return;
+    }
+
     if (!TXT_Init()) {
         fprintf(stderr, "Failed to initialize GUI\n");
         exit(-1);

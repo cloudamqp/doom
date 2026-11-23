@@ -476,16 +476,18 @@ void D_DoomLoop(void)
 
     main_loop_started = true;
 
-    I_SetWindowTitle(gamedescription);
-    I_GraphicsCheckCommandLine();
-    I_SetGrabMouseCallback(D_GrabMouseCallback);
-    I_InitGraphics();
+    if (!nodrawers) {
+        I_SetWindowTitle(gamedescription);
+        I_GraphicsCheckCommandLine();
+        I_SetGrabMouseCallback(D_GrabMouseCallback);
+        I_InitGraphics();
 
-    emscripten_set_visibilitychange_callback(NULL, false, D_VisibilityChanged);
-    if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS && visibility.hidden) {
-        D_SetHidden(true);
+        emscripten_set_visibilitychange_callback(NULL, false, D_VisibilityChanged);
+        if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS && visibility.hidden) {
+            D_SetHidden(true);
+        }
+        EnableLoadingDisk();
     }
-    EnableLoadingDisk();
 
     TryRunTics();
 
@@ -1228,6 +1230,25 @@ void D_DoomMain(void)
     //
 
     devparm = M_CheckParm("-devparm");
+
+    //!
+    // @category video
+    // @vanilla
+    //
+    // Disable rendering the screen entirely. No window opens either, so
+    // the game runs where there is no screen: bots play like this.
+    //
+
+    nodrawers = M_ParmExists("-nodraw");
+
+    //!
+    // @category game
+    //
+    // Run one tic per frame however long frames take, for games without
+    // a clock: a bot in training runs frames as fast as it can.
+    //
+
+    singletics = M_ParmExists("-singletics");
 
     I_DisplayFPSDots(devparm);
 

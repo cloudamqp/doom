@@ -48,6 +48,7 @@
 #include "d_main.h"
 
 #include "am_map.h"
+#include "b_bot.h"
 #include "hu_stuff.h"
 #include "st_stuff.h"
 #include "statdump.h"
@@ -500,6 +501,9 @@ void G_BuildTiccmd(ticcmd_t *cmd, int maketic)
 
     cmd->forwardmove += forward;
     cmd->sidemove += side;
+
+    // A bot's moves replace the keyboard's and the mouse's
+    B_BuildTiccmd(cmd, maketic);
 
     // special buttons
     if (sendpause) {
@@ -2012,15 +2016,6 @@ void G_DoPlayDemo(void)
 //
 void G_TimeDemo(char *name)
 {
-    //!
-    // @category video
-    // @vanilla
-    //
-    // Disable rendering the screen entirely.
-    //
-
-    nodrawers = M_CheckParm("-nodraw");
-
     timingdemo = true;
     singletics = true;
 
