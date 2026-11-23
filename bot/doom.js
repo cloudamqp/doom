@@ -18,7 +18,9 @@ const WAD = "freedoom1.wad";
 //   print   is called with each line Doom prints
 //   exited  is called with Doom's exit status
 export async function startDoom({ args = [], files = {}, net, bot, print = () => {}, exited = () => {} }) {
-  const [js, wasm, wad] = await Promise.all(["doom.js", "doom.wasm", WAD].map((file) => readFile(WEB + file)));
+  const [js, wasm, wad] = await Promise.all(["doom.js", "doom.wasm", WAD].map((file) => readFile(WEB + file).catch(() => undefined)));
+  // A build from before bots only runs in browsers, and asks no bot for its moves
+  if (!js || !wasm || !wad || !js.includes("Module.bot")) throw new Error("web/ has no Doom for bots, build it with bin/build.sh");
   return new Promise((resolve) => {
     const Module = {
       arguments: ["-iwad", WAD, "-nodraw", "-nosound", "-nogui", ...args],
