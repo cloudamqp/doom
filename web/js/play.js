@@ -39,6 +39,9 @@ const hosting = query.has("host");
 const resumeId = query.get("resume");
 const playerName = (localStorage.getItem("doomq:name") || "Marine").slice(0, 20);
 const peerId = hosting ? SERVER_ID : newPeerId();
+
+// NET_PACKET_TYPE_DISCONNECT, see doom/src/net_defs.h
+const DISCONNECT = Uint8Array.of(0, 8);
 const inboxPrefix = topics.packet(gameId, peerId, "");
 
 const inbox = [];
@@ -291,7 +294,13 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
       if (!downloading || received === total) return; // done in the lobby, or kept from a visit before
       loading(`Downloading Doom… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total);
     });
-    const will = hosting ? { topic: topics.listing(gameId), payload: "", retain: true } : undefined;
+    // The broker publishes this when the connection drops without a goodbye,
+    // as when the tab closes. The host's clears its listing, a guest's tells
+    // the Doom server that the guest left, before the others wait 10 s for
+    // the guest to time out.
+    const will = hosting
+      ? { topic: topics.listing(gameId), payload: "", retain: true }
+      : { topic: topics.packet(gameId, SERVER_ID, peerId), payload: DISCONNECT };
     const mqtt = await MqttClient.connect(brokerUrl, { will });
     mqtt.onmessage = receive;
     setStatus("Connected", true);

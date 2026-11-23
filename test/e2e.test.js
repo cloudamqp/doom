@@ -147,6 +147,24 @@ test("players join a game and play it over MQTT", async () => {
   assert.match(await lobby.$eval("#message", (p) => p.textContent), /already started/);
 });
 
+test("a player who closes the tab doesn't stall the others", async () => {
+  const [host, bob, carol] = await Promise.all([player("Host"), player("Bob"), player("Carol")]);
+  const title = `Leaving ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  await Promise.all([join(bob, title), join(carol, title)]);
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await launch(host);
+  await Promise.all([waitForLine(bob, "doom: 10,"), waitForLine(carol, "doom: 10,")]);
+  await sleep(1_000);
+
+  // Doom would wait for Carol's moves until she times out, 10 s
+  const received = await countPackets(bob);
+  await carol.close();
+  await sleep(2_000);
+  const packets = await received();
+  assert.ok(packets > 50, `Bob received ${packets} packets in 2 s`);
+});
+
 test("a saved game can be resumed", async () => {
   const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
   const title = `Saved ${Date.now().toString(36)}`;
