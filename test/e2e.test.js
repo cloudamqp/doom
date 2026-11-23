@@ -4,6 +4,9 @@
 import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
 import puppeteer from "puppeteer";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { MqttClient } from "../web/js/mqtt.js";
 
@@ -48,12 +51,20 @@ async function createGame(page, title, mode = "deathmatch") {
 const listing = (title) => `::-p-xpath(//table[@id="games"]/tbody/tr[td[1][text()="${title}"]])`;
 const savedGame = (title) => `::-p-xpath(//table[@id="saves"]/tbody/tr[td[1][text()="${title}"]])`;
 
-async function waitForLine(page, prefix, timeout = 15_000) {
+async function waitForLine(player, prefix, timeout = 15_000) {
   const deadline = Date.now() + timeout;
-  while (!page.lines.some((line) => line.startsWith(prefix))) {
-    assert.ok(Date.now() < deadline, `no "${prefix}" line in:\n${page.lines.join("\n")}`);
+  while (!player.lines.some((line) => line.startsWith(prefix))) {
+    assert.ok(Date.now() < deadline, `no "${prefix}" line in:\n${player.lines.join("\n")}`);
     await sleep(100);
   }
+}
+
+// bin/bot.js as a child process, with the lines it has printed
+function bot(...args) {
+  const child = spawn("bin/bot.js", ["--broker", BROKER_URL, ...args], { cwd: new URL("..", import.meta.url) });
+  child.lines = [];
+  createInterface(child.stdout).on("line", (line) => child.lines.push(line));
+  return child;
 }
 
 // Doom ignores keys until its waiting room is up, and Space starts the game
@@ -152,6 +163,45 @@ test("players join a game and play it over MQTT", async () => {
   await lobby.goto(guest.url());
   await lobby.waitForSelector("#overlay:not([hidden])");
   assert.match(await lobby.$eval("#message", (p) => p.textContent), /already started/);
+});
+
+// Where a player's marine is on the page's screen, read as bots read the
+// world: see doom/src/doom/b_bot.c for the records
+function marine(page, player) {
+  return page.evaluate((player) => {
+    const SIZE = 15;
+    const things = Module._B_Things() >> 2;
+    for (let at = things + 1; at < things + 1 + Module.HEAP32[things] * SIZE; at += SIZE) {
+      const [, , x, y] = Module.HEAP32.subarray(at, at + SIZE);
+      if (Module.HEAP32[at + 12] === player) return { x: x / 65536, y: y / 65536 };
+    }
+  }, player);
+}
+
+test("a bot joins a game and plays it", async (t) => {
+  const host = await player("Host");
+  const title = `Bots ${Date.now().toString(36)}`;
+  await createGame(host, title, "coop");
+
+  const marvin = bot("--name", "Marvin", new URL(host.url()).searchParams.get("game"));
+  t.after(() => marvin.kill());
+  await waitForLine(marvin, `Joining "${title}" on E1M1, hosted by Host`);
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/4 players"));
+  await launch(host);
+  await waitForLine(marvin, "Entering E1M1");
+
+  // On the host's screen, the bot's marine runs off
+  const start = await marine(host, 2);
+  for (let far = 0, tries = 0; far < 512; tries++) {
+    assert.ok(tries < 100, `the bot got ${far} units from where it started`);
+    await sleep(250);
+    const { x, y } = await marine(host, 2);
+    far = Math.hypot(x - start.x, y - start.y);
+  }
+
+  // The game is over when its host leaves
+  await host.close();
+  assert.deepEqual(await once(marvin, "exit"), [0, null]);
 });
 
 test("a player who closes the tab doesn't stall the others", async () => {
