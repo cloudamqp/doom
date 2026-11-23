@@ -2,23 +2,26 @@
 // A bot that plays DooMQ. It joins a game as any player does, but runs Doom
 // without a screen and plays by the game's state instead of pixels and keys.
 //
-//   bin/bot.js [options] [game]
+//   bin/bot.js [options] [address or game]
 //
 // See README.md.
 
 import { parseArgs } from "node:util";
+import { locate } from "../bot/address.js";
 import { Brain } from "../bot/brain.js";
 import { TICRATE } from "../bot/doomdata.js";
 import { startDoom } from "../bot/doom.js";
 import { join } from "../bot/join.js";
 
-const USAGE = `Usage: bin/bot.js [options] [game]
+const USAGE = `Usage: bin/bot.js [options] [address or game]
 
-Joins the DooMQ game with the given id, or the first one that waits for
-players, and plays it.
+Joins a DooMQ game and plays it. Give it the address of a DooMQ page, as
+copied from the browser: the lobby's for the first game that waits for
+players, or a game's own. It finds the page's broker by itself. A game's id
+alone is looked for on the broker below.
 
-  --broker <url>   MQTT over WebSocket, default $BROKER_URL or
-                   ws://guest:guest@localhost:15672/mqtt
+  --broker <url>   MQTT over WebSocket, instead of the page's. Default
+                   $BROKER_URL or ws://guest:guest@localhost:15672/mqtt
   --name <name>    the bot's name in the game, default Bot
   --solo <map>     practice alone on a map (E1M1 to E4M9) as fast as the
                    machine goes, without a broker
@@ -29,7 +32,7 @@ players, and plays it.
 const { values: options, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    broker: { type: "string", default: process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt" },
+    broker: { type: "string" },
     name: { type: "string", default: "Bot" },
     solo: { type: "string" },
     skill: { type: "string", default: "3" },
@@ -73,9 +76,10 @@ if (options.help) {
 } else if (options.solo) {
   await solo(options.solo);
 } else {
+  const { broker, game } = await locate(positionals[0]);
   const status = await join({
-    broker: options.broker,
-    game: positionals[0],
+    broker: options.broker ?? broker ?? process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt",
+    game,
     name: options.name,
     bot: (doom) => new Brain(doom, { report: say, trace: chatter }),
     say,

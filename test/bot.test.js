@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { locate } from "../bot/address.js";
 import { aimAt, pickTarget, pickWeapon } from "../bot/combat.js";
 import { AMMO, MF_COUNTKILL, MF_SHOOTABLE, MF_SPECIAL, WEAPON, trigger, unlocked } from "../bot/doomdata.js";
 import { closestOn } from "../bot/geometry.js";
@@ -235,6 +236,27 @@ test("the world is read from Doom's records", () => {
     { ...zombie },
     { id: 7, type: ZOMBIE, x: 64, y: -32, z: 0, momx: 0.5, momy: 0, angle: Math.PI / 2, radius: 20, height: 56, health: 20, flags: MF_SHOOTABLE, player: 0, sector: 3, visible: true },
   );
+});
+
+test("a page's address tells the broker and the game", async (t) => {
+  const pages = {
+    "https://doom.example/play/js/config.js": 'export default {\n  broker: "wss://user:secret@broker.example/mqtt",\n};',
+    "http://localhost:8080/js/config.js": "export default {\n  broker: `ws://guest:guest@${location.hostname}:15672/mqtt`,\n};",
+  };
+  t.mock.method(globalThis, "fetch", async (url) => new Response(pages[url], { status: pages[url] ? 200 : 404 }));
+
+  assert.deepEqual(await locate("https://doom.example/play/"), { broker: "wss://user:secret@broker.example/mqtt", game: undefined });
+  assert.deepEqual(await locate("https://doom.example/play/index.html?game=0123456789ab"), {
+    broker: "wss://user:secret@broker.example/mqtt",
+    game: "0123456789ab",
+  });
+  assert.deepEqual(await locate("http://localhost:8080/"), { broker: "ws://guest:guest@localhost:15672/mqtt", game: undefined });
+  assert.deepEqual(await locate("http://localhost:8080/?broker=ws://other/mqtt"), { broker: "ws://other/mqtt", game: undefined });
+  assert.deepEqual(await locate("0123456789ab"), { game: "0123456789ab" });
+  assert.deepEqual(await locate(undefined), { game: undefined });
+  await assert.rejects(locate("https://elsewhere.example/"), /No DooMQ at https:\/\/elsewhere.example\/: .* gave 404/);
+  await assert.rejects(locate("E1M1"), /Neither a game id nor an address/);
+  await assert.rejects(locate("https://doom.example/play/?game=nope"), /No such game: nope/);
 });
 
 test("the bot plays E1M1 to its exit", { timeout: 120_000 }, async () => {
