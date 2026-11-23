@@ -86,17 +86,19 @@ LAME.
 
 ## Bots
 
-    bin/bot.js                  # joins the first game that waits for players
-    bin/bot.js <game>           # or this one, the id is in the game's address
-    bin/bot.js --solo E1M1      # practice alone, as fast as the machine goes
+    bin/bot.js http://localhost:8080/    # joins the first game that waits for players
+    bin/bot.js <a game's address>        # or this one, as copied from the browser
+    bin/bot.js --solo E1M1               # practice alone, as fast as the machine goes
 
 A bot is one more player on the broker: it finds a game in the lobby's
 retained listings, subscribes to its own packet topic and publishes its moves
 to the host's. It works in co-op games, where it heads for the exit, and in
-deathmatches, where it heads for the other marines. `--name` names it,
-`--broker` or `$BROKER_URL` point it at another broker, `--verbose` shows what
-it is up to. Start one per bot, each plays one game and exits when it is over.
-Bots need Node 22 and the build in `web/`, see Development.
+deathmatches, where it heads for the other marines. Given a page's address it
+reads the broker from the page's `js/config.js`, as browsers do. `--broker` or
+`$BROKER_URL` name a broker without a page, `--name` names the bot and
+`--verbose` shows what it is up to. Start one per bot, each plays one game and
+exits when it is over. Bots need Node 22 and the build in `web/`, see
+Development.
 
 It does not look at the screen or press keys. Doom's packets only carry what
 each player does, a ticcmd per tic: run, strafe, turn, fire, use. Every player
