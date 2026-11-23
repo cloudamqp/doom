@@ -60,9 +60,10 @@ static int *Records(int count, int size)
 EMSCRIPTEN_KEEPALIVE int *B_Game(void)
 {
     player_t *player = &players[consoleplayer];
-    int *out = Records(1, 26);
+    int *out = Records(1, 27);
     int weapons = 0;
     int cards = 0;
+    int frags = 0;
     int i;
 
     for (i = 0; i < NUMWEAPONS; ++i)
@@ -73,6 +74,12 @@ EMSCRIPTEN_KEEPALIVE int *B_Game(void)
     for (i = 0; i < NUMCARDS; ++i)
     {
         cards |= (player->cards[i] != 0) << i;
+    }
+
+    // The other marines it killed
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        frags += i == consoleplayer ? 0 : player->frags[i];
     }
 
     *out++ = gamestate;
@@ -93,6 +100,7 @@ EMSCRIPTEN_KEEPALIVE int *B_Game(void)
     *out++ = player->powers[pw_strength];
     *out++ = player->killcount;
     *out++ = totalkills;
+    *out++ = frags;
 
     for (i = 0; i < NUMAMMO; ++i)
     {
