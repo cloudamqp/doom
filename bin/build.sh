@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds DooMQ into web/: Doom compiled to WebAssembly and the Freedoom IWAD.
+# Builds DooMQ into web/: Doom compiled to WebAssembly, the Freedoom IWAD,
+# and the lobby's music.
 #
 # Installs what is missing: build tools with apt-get, and Emscripten with
 # emsdk in $EMSDK (default ~/emsdk) unless emcc is already on PATH, as in
@@ -25,13 +26,14 @@ install_tools() {
   local sudo=""
   [ "$(id -u)" -eq 0 ] || sudo=sudo
   $sudo apt-get update -q
-  $sudo apt-get install -qy --no-install-recommends ca-certificates curl git make python3 unzip xz-utils
+  # the xz command comes in xz-utils, the others in packages of their name
+  $sudo apt-get install -qy --no-install-recommends ca-certificates "${missing[@]/#xz/xz-utils}"
 }
 
 if command -v emcc >/dev/null; then
-  install_tools curl make unzip
+  install_tools curl lame make unzip
 else
-  install_tools curl git make python3 unzip xz
+  install_tools curl git lame make python3 unzip xz
   EMSDK=${EMSDK:-$HOME/emsdk}
   [ -d "$EMSDK" ] || git clone --depth 1 https://github.com/emscripten-core/emsdk "$EMSDK"
   "$EMSDK/emsdk" install "$EMSCRIPTEN_VERSION"
@@ -54,6 +56,12 @@ fi
 
 make -C doom -j"$(nproc)"
 cp doom/build/doom.js doom/build/doom.wasm web/
+
+# The lobby's music: Freedoom's E1M1, as the game plays it
+if [ ! web/music.mp3 -nt doom/build/oplrender.cjs ]; then
+  "${EMSDK_NODE:-node}" doom/build/oplrender.cjs web/freedoom1.wad D_E1M1 doom/build/music.wav >/dev/null
+  lame --quiet -V 5 doom/build/music.wav web/music.mp3
+fi
 # The page keeps the files by hash, and shows download progress with the
 # sizes, which servers that compress the files don't tell
 (

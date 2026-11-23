@@ -40,6 +40,11 @@ The lobby and the games share `web/index.html`. A game opens in place, so the
 download of Doom (31 MB, mostly the Freedoom WAD) that starts with the lobby
 carries on, or is already done (`web/js/files.js`).
 
+The lobby plays Freedoom's E1M1 from the first click or key press until the
+game starts, at Doom's music volume. `bin/build.sh` renders it from the WAD
+the way the game plays it, with `doom/tools/oplrender.c`, and encodes it with
+LAME.
+
 ### Saved games
 
 - The host autosaves every 2 minutes, and players can save from Doom's menu.

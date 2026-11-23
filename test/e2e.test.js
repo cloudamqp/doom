@@ -197,10 +197,10 @@ test("Doom's errors reach the player", async () => {
   await mqtt.subscribe(`doomq/savedata/${game}`);
   await autosave(host);
   const data = gunzipSync(await stored);
+  await host.close(); // no more saves to overwrite this one
   data[data.length - 1] ^= 0xff;
   mqtt.publish(`doomq/savedata/${game}`, gzipSync(data), { retain: true });
   mqtt.close();
-  await host.close();
 
   // Doom's error, not the shutdown messages that follow it on stderr
   const save = await lobby.waitForSelector(savedGame(title));
@@ -249,6 +249,23 @@ test("a name and Enter start a game", async () => {
   await Promise.all([host.waitForNavigation(), host.keyboard.press("Enter")]);
   await host.waitForFunction(() => document.querySelector("#title").textContent === "Swift's game");
   assert.ok(new URL(host.url()).searchParams.has("host"));
+});
+
+test("music starts with the first click, at Doom's music volume", async () => {
+  const page = await player("Listener");
+  const paused = () => page.$eval("#music", (audio) => audio.paused);
+  assert.ok(await paused(), "playing before anyone clicked");
+  await page.click("#name");
+  await page.waitForFunction(() => !document.querySelector("#music").paused);
+
+  // Off in the lobby is off in the game too
+  await page.click("#music-toggle");
+  assert.ok(await paused());
+  assert.match(await page.evaluate(() => localStorage.getItem("doomq:default.cfg")), /^music_volume\s+0$/m);
+  await page.reload();
+  await page.click("#name");
+  await sleep(500);
+  assert.ok(await paused(), "playing although turned off");
 });
 
 test("Doom settings outlive the page", async () => {
