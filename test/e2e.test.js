@@ -216,7 +216,8 @@ test("a game carries on with the download the lobby started", async () => {
     const file = new URL(request.url()).pathname.split("/").pop();
     if (["doom.js", "doom.wasm", "freedoom1.wad"].includes(file)) files.push(file);
   });
-  // Slow enough to open the game halfway through
+  // Not kept from the visit before, and slow enough to open the game halfway through
+  await host.evaluate(() => caches.delete("doomq"));
   const cdp = await host.createCDPSession();
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: 10e6, uploadThroughput: 10e6 });
   await host.reload();
@@ -226,6 +227,28 @@ test("a game carries on with the download the lobby started", async () => {
   assert.match(await host.$eval("#loading-text", (p) => p.textContent), /^(Downloading Doom… |Connecting)/);
   await launch(host);
   assert.deepEqual(files.sort(), ["doom.js", "doom.wasm", "freedoom1.wad"]);
+});
+
+test("the lobby keeps Doom for the next visit", async () => {
+  const page = await player("Returning");
+  await page.waitForSelector("#preload.ready");
+  const files = [];
+  page.on("request", (request) => {
+    const file = new URL(request.url()).pathname.split("/").pop();
+    if (["doom.js", "doom.wasm", "freedoom1.wad"].includes(file)) files.push(file);
+  });
+  await page.reload();
+  await page.waitForSelector("#preload.ready");
+  assert.deepEqual(files, []);
+});
+
+test("a name and Enter start a game", async () => {
+  const host = await player("Speedy");
+  await host.click("#name", { count: 3 });
+  await host.type("#name", "Swift");
+  await Promise.all([host.waitForNavigation(), host.keyboard.press("Enter")]);
+  await host.waitForFunction(() => document.querySelector("#title").textContent === "Swift's game");
+  assert.ok(new URL(host.url()).searchParams.has("host"));
 });
 
 test("Doom settings outlive the page", async () => {

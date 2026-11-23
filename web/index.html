@@ -25,10 +25,10 @@
         <div class="pitch">
           <p class="lead">Doom multiplayer in the browser, brokered by LavinMQ.</p>
           <p>Every step, shot and frag travels as an MQTT message, 35 times a second per player.</p>
-          <div class="actions">
-            <a class="button" href="#create">Start a game</a>
+          <form id="quick" class="actions">
             <label class="name">Your name <input id="name" maxlength="20" placeholder="Marine" autocomplete="nickname" /></label>
-          </div>
+            <button>Start a game</button>
+          </form>
           <p id="preload"><span></span><progress></progress></p>
         </div>
         <h1>DooMQ</h1>

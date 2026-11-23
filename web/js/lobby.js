@@ -130,16 +130,18 @@ document.addEventListener("click", (event) => {
   play(a.href);
 });
 
-$(".actions .button").addEventListener("click", (event) => {
+// Starts a game right away, with the settings in the form for new games
+$("#quick").addEventListener("submit", (event) => {
   event.preventDefault();
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
-  fields.title.focus({ preventScroll: true });
+  form.requestSubmit();
 });
 
 // Doom downloads while people look around, games start right away after
 const preload = $("#preload");
 const [preloadText, preloadBar] = preload.children;
-const unwatch = watch(({ received, total }) => {
+const unwatch = watch(({ received, total, downloading }) => {
+  if (!downloading) return;
+  preload.className = "downloading";
   preloadText.textContent = `Downloading Doom: ${(received / 1e6).toFixed(1)}${total ? ` of ${(total / 1e6).toFixed(1)}` : ""} MB`;
   if (total) Object.assign(preloadBar, { max: total, value: received });
 });
