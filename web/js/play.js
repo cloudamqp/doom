@@ -15,9 +15,12 @@ import {
   parseListing,
   parseSave,
   readSaveHeader,
+  setStatus,
   settingsFromQuery,
   topics,
 } from "./doomq.js";
+import { downloads, watch } from "./files.js";
+import { burn } from "./fire.js";
 
 // Doom peers send a keepalive at least every 2 s
 const PRESENCE_WINDOW = 5_000;
@@ -42,14 +45,21 @@ const lastSeen = new Map(); // peer -> time of its last packet, the host counts 
 const waiting = new Map(); // topic -> callback for its retained message
 let error = "The game crashed.";
 
+const fire = burn($("#loading .fire"));
+
+// Shown over the screen until Doom draws on it
+function loaded() {
+  $("#loading").hidden = true;
+  fire.stop();
+}
+
 function fail(message) {
   $("#message").textContent = message;
   $("#overlay").hidden = false;
-  $("#loading").hidden = true;
+  loaded();
   document.exitPointerLock?.();
 }
 
-// Shown over the screen until Doom draws on it
 function loading(text, done, total) {
   $("#loading-text").textContent = text;
   const bar = $("#loading progress");
@@ -58,24 +68,6 @@ function loading(text, done, total) {
 }
 
 const megabytes = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
-
-async function download(url, progress) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Could not download ${url}: ${response.status}`);
-  // A compressed response doesn't tell the size of what it unpacks to
-  const total = response.headers.has("content-encoding") ? 0 : Number(response.headers.get("content-length"));
-  const reader = response.body.getReader();
-  const chunks = [];
-  let received = 0;
-  for (let read; !(read = await reader.read()).done; ) {
-    chunks.push(read.value);
-    received += read.value.length;
-    progress(received, total);
-  }
-  const data = new Uint8Array(received);
-  chunks.reduce((offset, chunk) => (data.set(chunk, offset), offset + chunk.length), 0);
-  return data;
-}
 
 function describe(game) {
   $("#title").textContent = game.title;
@@ -221,7 +213,7 @@ function storeSettings(FS) {
   }
 }
 
-function startDoom(mqtt, role, wad) {
+function startDoom(mqtt, role, { js, wasm, wad }) {
   let running = false;
   const saveSettings = () => {
     if (!running) return; // before Doom has read them, this would reset them
@@ -239,6 +231,11 @@ function startDoom(mqtt, role, wad) {
       ...["-window", "-nogui", "-pet", playerName, ...role.args],
     ],
     canvas: $("#canvas"),
+    // Compiled by files.js while the page waited
+    instantiateWasm(imports, receive) {
+      WebAssembly.instantiate(wasm, imports).then((instance) => receive(instance, wasm));
+      return {};
+    },
     preRun: [
       () => {
         const { FS } = Module;
@@ -252,7 +249,7 @@ function startDoom(mqtt, role, wad) {
     print(line) {
       console.log(line);
       // Next comes the waiting room
-      if (line.startsWith("NET_Init:")) $("#loading").hidden = true;
+      if (line.startsWith("NET_Init:")) loaded();
       if (line.startsWith("doom: 10,")) {
         running = true;
         $("#hint").hidden = true;
@@ -279,27 +276,32 @@ function startDoom(mqtt, role, wad) {
       recv: () => inbox.shift(),
     },
   };
-  document.body.append(Object.assign(document.createElement("script"), { src: "doom.js" }));
+  document.body.append(Object.assign(document.createElement("script"), { text: `${js}\n//# sourceURL=doom.js` }));
 }
 
-for (const a of document.querySelectorAll(".back")) a.href = link("index.html");
+for (const a of document.querySelectorAll(".back")) a.href = link("./");
 
 if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
 } else {
   try {
-    // The game data is most of the wait on a first visit, start right away
-    const wad = download("freedoom1.wad", (received, total) =>
-      loading(`Downloading game data… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total),
-    );
-    wad.catch(() => {});
+    const unwatch = watch(({ received, total }) => {
+      if (total && received === total) return; // done while in the lobby
+      loading(`Downloading Doom… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total);
+    });
     const will = hosting ? { topic: topics.listing(gameId), payload: "", retain: true } : undefined;
     const mqtt = await MqttClient.connect(brokerUrl, { will });
     mqtt.onmessage = receive;
-    mqtt.onclose = () => fail("Lost connection to the broker.");
+    setStatus("Connected", true);
+    mqtt.onclose = () => {
+      setStatus("Disconnected");
+      fail("Lost connection to the broker.");
+    };
     await mqtt.subscribe(topics.inbox(gameId, peerId));
     const role = await (hosting ? host(mqtt) : guest(mqtt));
-    startDoom(mqtt, role, await wad);
+    const doom = await downloads;
+    unwatch();
+    startDoom(mqtt, role, doom);
     $("#canvas").focus();
   } catch (error) {
     fail(error.message);

@@ -209,6 +209,25 @@ test("Doom's errors reach the player", async () => {
   assert.equal(await lobby.$eval("#message", (p) => p.textContent), "Bad savegame");
 });
 
+test("a game carries on with the download the lobby started", async () => {
+  const host = await player("Quick");
+  const files = [];
+  host.on("request", (request) => {
+    const file = new URL(request.url()).pathname.split("/").pop();
+    if (["doom.js", "doom.wasm", "freedoom1.wad"].includes(file)) files.push(file);
+  });
+  // Slow enough to open the game halfway through
+  const cdp = await host.createCDPSession();
+  await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: 10e6, uploadThroughput: 10e6 });
+  await host.reload();
+  await host.waitForFunction(() => document.querySelector("#preload").textContent.startsWith("Downloading Doom: "));
+
+  await createGame(host, `Quick ${Date.now().toString(36)}`);
+  assert.match(await host.$eval("#loading-text", (p) => p.textContent), /^(Downloading Doom… |Connecting)/);
+  await launch(host);
+  assert.deepEqual(files.sort(), ["doom.js", "doom.wasm", "freedoom1.wad"]);
+});
+
 test("Doom settings outlive the page", async () => {
   const host = await player("Tweaker");
   const defaults = await (await fetch(`${WEB_URL}/default.cfg`)).text();

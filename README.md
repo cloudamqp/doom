@@ -36,6 +36,10 @@ their tab.
 
 `web/js/mqtt.js` is a small MQTT 3.1.1 client with just what this needs.
 
+The lobby and the games share `web/index.html`. A game opens in place, so the
+download of Doom (31 MB, mostly the Freedoom WAD) that starts with the lobby
+carries on, or is already done (`web/js/files.js`).
+
 ### Saved games
 
 - The host autosaves every 2 minutes, and players can save from Doom's menu.
