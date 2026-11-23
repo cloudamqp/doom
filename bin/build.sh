@@ -54,7 +54,13 @@ fi
 
 make -C doom -j"$(nproc)"
 cp doom/build/doom.js doom/build/doom.wasm web/
-# The page shows download progress with these, servers may compress the files
-(cd web && stat -c '"%n": %s' doom.js doom.wasm freedoom1.wad | paste -sd, | sed 's/.*/{&}/') > web/files.json
+# The page keeps the files by hash, and shows download progress with the
+# sizes, which servers that compress the files don't tell
+(
+  cd web
+  for file in doom.js doom.wasm freedoom1.wad; do
+    printf '"%s": {"size": %s, "hash": "%s"}\n' "$file" "$(stat -c %s "$file")" "$(sha256sum "$file" | cut -c1-16)"
+  done | paste -sd, - | sed 's/.*/{&}/'
+) > web/files.json
 
 echo "Built into web/ with $(emcc --version | head -1)"

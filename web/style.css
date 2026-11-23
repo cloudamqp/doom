@@ -255,8 +255,8 @@ progress::-moz-progress-bar {
   margin-top: 28px;
 }
 
-.actions .button {
-  padding: 12px 22px 10px;
+.actions button {
+  padding: 10px 22px 8px;
   font-size: 30px;
 }
 
@@ -275,6 +275,11 @@ progress::-moz-progress-bar {
 
 #preload progress {
   width: 14rem;
+  visibility: hidden;
+}
+
+#preload.downloading progress {
+  visibility: visible;
 }
 
 #preload.ready {
@@ -283,10 +288,6 @@ progress::-moz-progress-bar {
 
 #preload.failed {
   color: var(--flame);
-}
-
-#preload:is(.ready, .failed) progress {
-  visibility: hidden;
 }
 
 .hero h1 {

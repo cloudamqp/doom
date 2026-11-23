@@ -285,8 +285,8 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
 } else {
   try {
-    const unwatch = watch(({ received, total }) => {
-      if (total && received === total) return; // done while in the lobby
+    const unwatch = watch(({ received, total, downloading }) => {
+      if (!downloading || received === total) return; // done in the lobby, or kept from a visit before
       loading(`Downloading Doom… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total);
     });
     const will = hosting ? { topic: topics.listing(gameId), payload: "", retain: true } : undefined;
