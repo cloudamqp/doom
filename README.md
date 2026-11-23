@@ -84,6 +84,51 @@ LAME.
   unpacking one at 1 MB (`web/js/gzip.js`): a few KB of gzip can expand to
   gigabytes.
 
+## Bots
+
+    bin/bot.js                  # joins the first game that waits for players
+    bin/bot.js <game>           # or this one, the id is in the game's address
+    bin/bot.js --solo E1M1      # practice alone, as fast as the machine goes
+
+A bot is one more player on the broker: it finds a game in the lobby's
+retained listings, subscribes to its own packet topic and publishes its moves
+to the host's. It works in co-op games, where it heads for the exit, and in
+deathmatches, where it heads for the other marines. `--name` names it,
+`--broker` or `$BROKER_URL` point it at another broker, `--verbose` shows what
+it is up to. Start one per bot, each plays one game and exits when it is over.
+Bots need Node 22 and the build in `web/`, see Development.
+
+It does not look at the screen or press keys. Doom's packets only carry what
+each player does, a ticcmd per tic: run, strafe, turn, fire, use. Every player
+works out the rest by running the same game, and so does the bot: the same
+build of Doom, in Node, without a window (`bot/doom.js`). Each tic Doom asks it
+for a ticcmd, and it reads the world from the game: the sectors, the lines and
+the things, with whether it has them in sight (`doom/src/doom/b_bot.c`,
+`bot/world.js`).
+
+- `bot/nav.js` finds ways on a grid of 16 unit cells, by Doom's own rules for
+  where a player fits. Floors and ceilings move, so it takes their heights anew
+  every tic.
+- `bot/goals.js` picks what to do: get the keys and what it is short of, leave
+  by the exit once there is a way to it, and until then press the switches and
+  cross the lines it has tried the least, and go where it has not been. It
+  knows the map, as players who have run it often do, but not what the
+  switches do.
+- `bot/combat.js` picks the enemy, the weapon, where to aim and where to stand.
+  Zombies first, as their shots can't be dodged. Missiles are dodged, and sent
+  to where a moving target will be.
+- `bot/steer.js` turns that into ticcmds. A ticcmd turns by any angle at once,
+  so the bot never misses its aim, and it runs forward and sideways together as
+  speedrunners do, 41% faster than forward alone.
+- `bot/brain.js` puts it together, opens doors, rides lifts and gets unstuck.
+
+It plays by a player's limits: the game clamps its pushes to a running
+player's, and it only knows what the game tells every player's machine.
+
+Alone, it leaves Freedoom's E1M1 after 37 seconds, and gets through five of the
+36 maps: E1M1, E1M2, E1M4, E1M8 and E3M1. On the others it runs out of ideas
+or of health, and is glad of human company.
+
 ## Development
 
     docker compose up -d lavinmq         # broker, MQTT over WebSocket on :15672
@@ -97,6 +142,9 @@ Emscripten in `~/emsdk` unless `emcc` is already on `PATH`, as in the
     npm install
     npm test    # needs the broker and the web app on :8080, and a display
                 # for the hidden tab test, e.g. xvfb-run npm test
+
+`test/bot.test.js` only needs the build, and what a bot does on a map shows
+with `bin/bot.js --solo E1M3 --verbose`.
 
 Add `?broker=wss://user:pass@host/mqtt` to the lobby URL to use another broker.
 
@@ -144,7 +192,8 @@ credentials can fill the disk with retained messages on topics like
   timers, so a Web Worker's timer runs the game instead. Browsers that suspend
   background tabs entirely, like on phones, pause the game for everyone, and
   after 10 s that player is dropped, or the game ends if it was the host.
-- Doom has no drop-in: join before the host starts. 4 players at most.
+- Doom has no drop-in: join before the host starts. 4 players at most, bots
+  included.
 - Sound starts on the first click or key press.
 
 ## License
