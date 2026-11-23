@@ -5,6 +5,7 @@ import { MqttClient } from "../web/js/mqtt.js";
 import { gunzip } from "../web/js/gzip.js";
 import { SERVER_ID, newPeerId, parseListing, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
+import { network } from "./net.js";
 
 // Where Doom looks for the save of a resumed game, -loadgame 0
 const RESUME_FILE = "saves/doomsav0.dsg";
@@ -22,9 +23,9 @@ const joinable = (game) => game?.state === "waiting" && game.players < game.maxP
 export async function join({ broker, game: wanted, name, bot, say, print }) {
   const mqtt = await MqttClient.connect(broker);
   const peerId = newPeerId();
-  const inbox = [];
   const retained = new Map(); // topic -> callback for its retained message
   let joined; // id of the game the bot is in
+  let packets; // its network there
   let found; // callback for a game to join
 
   const over = Promise.withResolvers();
@@ -36,8 +37,8 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
       if (joinable(game) && (!wanted || id === wanted)) found?.({ id, ...game });
       // The host clears its listing as it leaves
       if (id === joined && !game) over.resolve(0);
-    } else if (joined && topic.startsWith(topics.packet(joined, peerId, ""))) {
-      inbox.push({ from: Number(topic.split("/").pop()), data: payload });
+    } else {
+      packets?.deliver(topic, payload);
     }
   };
 
@@ -47,6 +48,7 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
   const game = await Promise.race([listed, over.promise]);
   found = undefined;
   joined = game.id;
+  packets = network(mqtt, joined, peerId);
   say(`Joining "${game.title}" on ${game.map}, hosted by ${game.host}`);
   await mqtt.subscribe(topics.inbox(joined, peerId));
 
@@ -65,11 +67,7 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
     bot,
     print,
     exited: over.resolve,
-    net: {
-      connected: () => mqtt.connected,
-      send: (to, data) => mqtt.publish(topics.packet(joined, to, peerId), data),
-      recv: () => inbox.shift(),
-    },
+    net: packets.net,
   });
   return over.promise.finally(() => mqtt.close());
 }

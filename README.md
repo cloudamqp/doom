@@ -86,9 +86,10 @@ LAME.
 
 ## Bots
 
-    bin/bot.js http://localhost:8080/    # joins the first game that waits for players
-    bin/bot.js <a game's address>        # or this one, as copied from the browser
-    bin/bot.js --solo E1M1               # practice alone, as fast as the machine goes
+    bin/bot.js http://localhost:8080/           # joins the first game that waits for players
+    bin/bot.js <a game's address>               # or this one, as copied from the browser
+    bin/bot.js --host http://localhost:8080/    # starts a game of its own
+    bin/bot.js --solo E1M1                      # practice alone, as fast as the machine goes
 
 A bot is one more player on the broker: it finds a game in the lobby's
 retained listings, subscribes to its own packet topic and publishes its moves
@@ -97,8 +98,16 @@ deathmatches, where it heads for the other marines. Given a page's address it
 reads the broker from the page's `js/config.js`, as browsers do. `--broker` or
 `$BROKER_URL` name a broker without a page, `--name` names the bot and
 `--verbose` shows what it is up to. Start one per bot, each plays one game and
-exits when it is over. Bots need Node 22 and the build in `web/`, see
-Development.
+exits when it is over.
+
+With `--host` a bot starts a game instead: it runs Doom's server and lists the
+game in the lobby, for people and other bots to join. Without a screen there is
+no waiting room to press Space in, so the game starts once `--players` are in,
+the bot included. `--mode`, `--map`, `--skill`, `--title`, `--no-monsters` and
+`--no-spectators` are the lobby's form. Spectators can watch a bot's game as
+any other. It is not saved, so it can't be resumed.
+
+Bots need Node 22 and the build in `web/`, see Development.
 
 It does not look at the screen or press keys. Doom's packets only carry what
 each player does, a ticcmd per tic: run, strafe, turn, fire, use. Every player

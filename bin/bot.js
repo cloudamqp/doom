@@ -11,7 +11,9 @@ import { locate } from "../bot/address.js";
 import { Brain } from "../bot/brain.js";
 import { TICRATE } from "../bot/doomdata.js";
 import { startDoom } from "../bot/doom.js";
+import { host } from "../bot/host.js";
 import { join } from "../bot/join.js";
+import { MAPS, MAX_PLAYERS, MODES, SKILLS } from "../web/js/protocol.js";
 
 const USAGE = `Usage: bin/bot.js [options] [address or game]
 
@@ -23,9 +25,18 @@ alone is looked for on the broker below.
   --broker <url>   MQTT over WebSocket, instead of the page's. Default
                    $BROKER_URL or ws://guest:guest@localhost:15672/mqtt
   --name <name>    the bot's name in the game, default Bot
+  --host           start a game instead, on the page's broker, and play it.
+                   It shows in the lobby and starts once enough have joined.
+  --players <1-4>  with --host, how many it starts with, the bot included.
+                   Default 2
+  --mode <mode>    with --host: coop (default), deathmatch or altdeath
+  --map <map>      with --host, E1M1 (default) to E4M9
+  --title <title>  with --host, default "<name>'s game"
+  --no-monsters    with --host
+  --no-spectators  with --host, keep the game to its players
   --solo <map>     practice alone on a map (E1M1 to E4M9) as fast as the
                    machine goes, without a broker
-  --skill <1-5>    with --solo, default 3
+  --skill <1-5>    with --solo or --host, default 3
   --verbose        print Doom's output and what the bot is up to
 `;
 
@@ -34,6 +45,13 @@ const { values: options, positionals } = parseArgs({
   options: {
     broker: { type: "string" },
     name: { type: "string", default: "Bot" },
+    host: { type: "boolean", default: false },
+    players: { type: "string", default: "2" },
+    mode: { type: "string", default: "coop" },
+    map: { type: "string", default: "E1M1" },
+    title: { type: "string" },
+    "no-monsters": { type: "boolean", default: false },
+    "no-spectators": { type: "boolean", default: false },
     solo: { type: "string" },
     skill: { type: "string", default: "3" },
     verbose: { type: "boolean", default: false },
@@ -71,17 +89,29 @@ async function solo(map) {
   process.exit(0);
 }
 
-// Joins a game on a broker and plays it until it is over
+// What --host asks for, as the lobby's form would
+function hosting() {
+  const [players, skill] = [Number(options.players), Number(options.skill)];
+  if (!(players >= 1 && players <= MAX_PLAYERS)) throw new Error(`A game has 1 to ${MAX_PLAYERS} players, not ${options.players}`);
+  if (!(options.mode in MODES)) throw new Error(`No such mode: ${options.mode}. There is ${Object.keys(MODES).join(", ")}`);
+  if (!MAPS.includes(options.map)) throw new Error(`No such map: ${options.map}`);
+  if (!SKILLS[skill - 1]) throw new Error(`No such skill: ${options.skill}`);
+  const title = (options.title ?? `${options.name}'s game`).slice(0, 40);
+  const settings = { title, mode: options.mode, skill, map: options.map, monsters: !options["no-monsters"], spectators: !options["no-spectators"] };
+  return { players, settings };
+}
+
+// Hosts a game on a broker or joins one, and plays it until it is over
 async function play(address) {
   const { broker, game } = await locate(address);
-  const status = await join({
+  const player = {
     broker: options.broker ?? broker ?? process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt",
-    game,
     name: options.name,
     bot: (doom) => new Brain(doom, { report: say, trace: chatter }),
     say,
     print: chatter,
-  });
+  };
+  const status = await (options.host ? host({ ...player, ...hosting() }) : join({ ...player, game }));
   say("The game is over");
   process.exit(status);
 }
