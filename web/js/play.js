@@ -21,6 +21,7 @@ import {
 } from "./doomq.js";
 import { downloads, watch } from "./files.js";
 import { burn } from "./fire.js";
+import { stopMusic } from "./music.js";
 
 // Doom peers send a keepalive at least every 2 s
 const PRESENCE_WINDOW = 5_000;
@@ -252,6 +253,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       if (line.startsWith("NET_Init:")) loaded();
       if (line.startsWith("doom: 10,")) {
         running = true;
+        stopMusic(); // Doom plays its own
         $("#hint").hidden = true;
         role.started?.();
       }

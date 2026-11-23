@@ -109,6 +109,40 @@ code {
   box-shadow: 0 0 10px var(--signal);
 }
 
+.music {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#music-toggle {
+  display: grid;
+  padding: 6px;
+  border-radius: 8px;
+  background: none;
+  color: var(--smoke);
+}
+
+#music-toggle:hover {
+  background: var(--ash);
+  color: var(--bone);
+}
+
+#music-toggle svg {
+  fill: currentColor;
+  shape-rendering: crispEdges;
+}
+
+#music-toggle[aria-pressed="true"] .off,
+#music-toggle[aria-pressed="false"] .on {
+  display: none;
+}
+
+#music-volume {
+  width: 88px;
+  accent-color: var(--fire);
+}
+
 /* Controls */
 
 .button,

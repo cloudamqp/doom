@@ -25,11 +25,14 @@
 - The server's deadlock check reads its receive window the right way round
   (backported from [chocolate-doom@8aa4ed6][6]).
 
+`tools/oplrender.c` renders a song from the IWAD to a WAV file with the game's
+OPL music player and emulator, for the lobby's music. It runs in Node.
+
 ## Build
 
 With Emscripten, e.g. inside the [emsdk image][4]:
 
-    make -j"$(nproc)"    # build/doom.js, build/doom.wasm
+    make -j"$(nproc)"    # build/doom.js, build/doom.wasm, build/oplrender.cjs
 
 `../bin/build.sh` installs Emscripten if needed and copies the result to `web/`.
 
