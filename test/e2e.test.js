@@ -196,6 +196,25 @@ test("spectators watch a game from above, with the scores", async () => {
   await fan.waitForFunction(() => document.querySelector(".match .banner").textContent === "Game over");
 });
 
+test("spectators learn when a host doesn't share its game", async () => {
+  const host = await player("Hermit");
+  const title = `Private ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  // As a host on a build from before spectators, once Doom runs
+  await host.waitForFunction(() => document.querySelector("#loading").hidden);
+  await host.evaluate(() => (Module.onWatch = undefined));
+  await launch(host);
+
+  const fan = await player("Fan");
+  const watch = await fan.waitForSelector(`${listing(title)} >>> a.watch`);
+  await Promise.all([fan.waitForNavigation(), watch.click()]);
+  await fan.waitForSelector(".match .banner");
+  await fan.waitForFunction(
+    () => document.querySelector(".match .banner").textContent === "This game's host doesn't share it with spectators",
+    { timeout: 20_000 },
+  );
+});
+
 test("a saved game can be resumed", async () => {
   const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
   const title = `Saved ${Date.now().toString(36)}`;
