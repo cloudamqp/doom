@@ -14,6 +14,8 @@ const DELAY = 150;
 // Further than this between two snapshots is a teleport or a respawn
 const JUMP = 160;
 const QUIET_AFTER = 5_000; // the host stopped publishing
+// A host that never publishes, on a build from before spectators
+const SILENT_AFTER = 10_000;
 const GONE_AFTER = 30_000; // how long an ended game stays among all games
 
 // Doom's player colors: green, indigo, brown and red
@@ -54,6 +56,7 @@ class Match {
     this.monsters = [];
     this.listing = null;
     this.ended = null; // when its listing went away
+    this.playing = null; // since when its listing says it's in progress
     this.background = null; // the map, drawn for the canvas' size
     $("code", this.card).textContent = topics.watch(id);
     $("#arena").append(this.card);
@@ -65,6 +68,7 @@ class Match {
   }
 
   setListing(game) {
+    if (game?.state === "playing") this.playing ??= performance.now();
     if (game) this.listing = game;
     else this.ended ??= performance.now();
     this.describe();
@@ -75,6 +79,7 @@ class Match {
     if (watch.monsters) this.monsters = watch.monsters;
     this.describe();
     this.score(watch);
+    this.showBanner();
   }
 
   describe() {
@@ -84,11 +89,22 @@ class Match {
     $(".details", this.card).textContent = details.filter(Boolean).join(" · ");
   }
 
-  // What goes over the map, if anything
+  // What goes over the map, if anything. Kept up to date by a timer, not
+  // with the drawing, which stops in hidden tabs and when nothing moves.
+  showBanner(now = performance.now()) {
+    const text = this.banner(now);
+    $(".banner", this.card).textContent = text;
+    $(".banner", this.card).hidden = !text;
+  }
+
   banner(now) {
     const latest = this.snapshots.at(-1);
     if (this.ended) return "Game over";
-    if (!latest) return this.listing?.state === "waiting" ? "Waiting for players" : "Waiting for the host";
+    if (!latest) {
+      if (this.listing?.state === "waiting") return "Waiting for players";
+      if (this.playing !== null && now - this.playing > SILENT_AFTER) return "This game's host doesn't share it with spectators";
+      return "Waiting for the host";
+    }
     if (now - latest.at > QUIET_AFTER) return "The host went quiet";
     if (!wad) return "Loading the map…";
     return { intermission: "Intermission", finale: "Finale", demo: "Demo" }[latest.state] ?? "";
@@ -118,10 +134,6 @@ class Match {
   }
 
   draw(now) {
-    const banner = this.banner(now);
-    $(".banner", this.card).textContent = banner;
-    $(".banner", this.card).hidden = !banner;
-
     const { canvas } = this;
     const scale = devicePixelRatio;
     const width = Math.round(canvas.clientWidth * scale);
@@ -226,8 +238,10 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-function prune() {
+// Every second, and after every message
+function refresh() {
   for (const [id, match] of matches) {
+    match.showBanner();
     if (only || !match.ended || performance.now() - match.ended < GONE_AFTER) continue;
     match.remove();
     matches.delete(id);
@@ -261,15 +275,15 @@ if (only && !isGameId(only)) {
         const watch = parseWatch(payload);
         if (watch) matchFor(id).update(watch);
       }
-      prune();
+      refresh();
     };
     if (only) matchFor(only);
     await Promise.all([
       mqtt.subscribe(only ? topics.listing(only) : topics.lobby),
       mqtt.subscribe(only ? topics.watch(only) : topics.watching),
     ]);
-    setInterval(prune, 1_000);
-    prune();
+    setInterval(refresh, 1_000);
+    refresh();
     requestAnimationFrame(animate);
   } catch (error) {
     setStatus(error.message);

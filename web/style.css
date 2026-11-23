@@ -639,9 +639,16 @@ td .watch:hover {
   display: grid;
   place-items: center;
   margin: 0;
+  padding: 0 10%;
   color: var(--bone);
-  font: 40px/1 var(--pixel);
+  font: clamp(28px, 3.2vw, 40px) / 1.05 var(--pixel);
+  text-align: center;
   background: rgb(13 13 13 / 0.55);
+}
+
+/* No players to show yet, the space stays so the map doesn't jump */
+.scores:has(tbody:empty) {
+  visibility: hidden;
 }
 
 .scores td:first-child {
