@@ -71,12 +71,9 @@ async function solo(map) {
   process.exit(0);
 }
 
-if (options.help) {
-  say(USAGE);
-} else if (options.solo) {
-  await solo(options.solo);
-} else {
-  const { broker, game } = await locate(positionals[0]);
+// Joins a game on a broker and plays it until it is over
+async function play(address) {
+  const { broker, game } = await locate(address);
   const status = await join({
     broker: options.broker ?? broker ?? process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt",
     game,
@@ -87,4 +84,14 @@ if (options.help) {
   });
   say("The game is over");
   process.exit(status);
+}
+
+try {
+  if (options.help) say(USAGE);
+  else if (options.solo) await solo(options.solo);
+  else await play(positionals[0]);
+} catch (error) {
+  // What went wrong is for whoever started the bot, where for those who work on it
+  console.error(options.verbose ? error : error.message);
+  process.exit(1);
 }
