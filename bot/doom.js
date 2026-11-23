@@ -15,9 +15,11 @@ const WAD = "freedoom1.wad";
 //   net     the network for doom/src/net_mqtt.c, as in web/js/play.js
 //   bot     given the module, returns what answers ticcmd(maketic) with the
 //           player's moves, see doom/src/doom/b_bot.c
+//   watch   is called with what spectators see, a few times a second, see
+//           doom/src/doom/d_watch.c
 //   print   is called with each line Doom prints
 //   exited  is called with Doom's exit status
-export async function startDoom({ args = [], files = {}, net, bot, print = () => {}, exited = () => {} }) {
+export async function startDoom({ args = [], files = {}, net, bot, watch, print = () => {}, exited = () => {} }) {
   const [js, wasm, wad] = await Promise.all(["doom.js", "doom.wasm", WAD].map((file) => readFile(WEB + file).catch(() => undefined)));
   // A build from before bots only runs in browsers, and asks no bot for its moves
   if (!js || !wasm || !wad || !js.includes("Module.bot")) throw new Error("web/ has no Doom for bots, build it with bin/build.sh");
@@ -41,6 +43,7 @@ export async function startDoom({ args = [], files = {}, net, bot, print = () =>
       print,
       printErr: print,
       onExit: exited,
+      onWatch: watch,
       net,
     };
     // doom.js is a script for a page, where Module is a global

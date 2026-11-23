@@ -204,6 +204,39 @@ test("a bot joins a game and plays it", async (t) => {
   assert.deepEqual(await once(marvin, "exit"), [0, null]);
 });
 
+test("a bot hosts a game that starts once its players are in", async (t) => {
+  const title = `Hosted ${Date.now().toString(36)}`;
+  const marvin = bot("--host", "--name", "Marvin", "--title", title, "--mode", "deathmatch", "--map", "E1M2");
+  t.after(() => marvin.kill());
+  await waitForLine(marvin, `Hosting "${title}" on E1M2`);
+
+  const guest = await player("Guest");
+  const row = await guest.waitForSelector(listing(title));
+  assert.match(await row.evaluate((tr) => tr.innerText), /Marvin\tDeathmatch\tE1M2\tHurt me plenty\t1\/2\tJoin/);
+  await join(guest, title);
+  // Nobody presses Space: two players were asked for
+  await waitForLine(guest, "doom: 10,");
+  await waitForLine(marvin, "Entering E1M2");
+
+  const lobby = await player("Watcher");
+  const started = await lobby.waitForSelector(listing(title));
+  assert.match(await started.evaluate((tr) => tr.innerText), /2\/2\tWatch/);
+
+  // Spectators see a bot's game as any other
+  const watch = await lobby.waitForSelector(`${listing(title)} >>> a.watch`);
+  await Promise.all([lobby.waitForNavigation(), watch.click()]);
+  await lobby.waitForFunction(() => document.querySelectorAll(".match tbody tr").length === 2);
+  const names = await lobby.$$eval(".match tbody tr", (rows) => rows.map((tr) => tr.cells[0].textContent));
+  assert.deepEqual(names.sort(), ["Guest", "Marvin"]);
+  await lobby.goto(`${WEB_URL}/index.html`);
+  await lobby.waitForSelector(listing(title));
+
+  // A host that is killed takes its listing with it, by its last will
+  marvin.kill("SIGKILL");
+  await lobby.waitForSelector(listing(title), { hidden: true });
+  await guest.waitForSelector("#overlay:not([hidden])");
+});
+
 test("a player who closes the tab doesn't stall the others", async () => {
   const [host, bob, carol] = await Promise.all([player("Host"), player("Bob"), player("Carol")]);
   const title = `Leaving ${Date.now().toString(36)}`;
