@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { aimAt, pickTarget, pickWeapon } from "../bot/combat.js";
 import { AMMO, MF_COUNTKILL, MF_SHOOTABLE, MF_SPECIAL, WEAPON, trigger, unlocked } from "../bot/doomdata.js";
+import { closestOn } from "../bot/geometry.js";
 import { chooseGoal } from "../bot/goals.js";
 import { Nav, UNREACHED } from "../bot/nav.js";
 import { push, strafeRun } from "../bot/steer.js";
@@ -140,6 +141,14 @@ test("line types are pressed, crossed or left alone", () => {
   assert.ok(unlocked(1, 0));
   assert.ok(!unlocked(26, 0b000110), "a blue door, with the yellow and red cards");
   assert.ok(unlocked(26, 0b001000), "the blue skull opens it too");
+});
+
+test("a switch is pressed away from its ends", () => {
+  const line = wall(0, 0, 64, 0, 0);
+  assert.deepEqual(closestOn(line, { x: 40, y: -30 }), { x: 40, y: 0 });
+  assert.deepEqual(closestOn(line, { x: 90, y: -30 }), { x: 64, y: 0 });
+  assert.deepEqual(closestOn(line, { x: 90, y: -30 }, 16), { x: 48, y: 0 });
+  assert.deepEqual(closestOn(wall(0, 0, 16, 0, 0), { x: 90, y: -30 }, 16), { x: 8, y: 0 }, "a short line's middle");
 });
 
 test("pushes run forward and sideways at once, and stop what carries on", () => {
