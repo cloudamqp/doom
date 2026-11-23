@@ -25,6 +25,9 @@
 - The server's deadlock check reads its receive window the right way round
   (backported from [chocolate-doom@8aa4ed6][6]).
 
+`src/doom/d_watch.c` hands the page what spectators see, nine times a second:
+the players, their scores and the monsters.
+
 `tools/oplrender.c` renders a song from the IWAD to a WAV file with the game's
 OPL music player and emulator, for the lobby's music. It runs in Node.
 

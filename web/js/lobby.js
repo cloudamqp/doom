@@ -10,10 +10,11 @@ import {
   parseListing,
   parseSave,
   setStatus,
-  showGame,
+  show,
   topics,
+  view,
 } from "./doomq.js";
-import { downloads, watch } from "./files.js";
+import { downloads, watchProgress } from "./files.js";
 import { burn } from "./fire.js";
 
 // Hosts refresh their listing every 5 s, so a quiet one is gone
@@ -25,6 +26,7 @@ const MAX_SAVES_SHOWN = 20;
 const $ = (selector) => document.querySelector(selector);
 const games = new Map(); // id -> { game, seen }
 const saves = new Map(); // id -> save summary
+const resumes = new Map(); // save id -> id of the game that resumes it
 const fire = burn($(".hero .fire"));
 let mqtt;
 let pruning;
@@ -47,6 +49,12 @@ function row(cells, action) {
   return tr;
 }
 
+// Leaves the rows alone unless they changed, as listings come again every
+// 5 s, so that a click on one isn't lost
+function replaceRows(tbody, rows) {
+  if (tbody.innerHTML !== rows.map((tr) => tr.outerHTML).join("")) tbody.replaceChildren(...rows);
+}
+
 function ago(time) {
   const minutes = Math.floor((Date.now() - time) / 60_000);
   if (minutes < 1) return "just now";
@@ -59,12 +67,14 @@ function render() {
     .map(([id, { game }]) => {
       const joinable = game.state === "waiting" && game.players < game.maxPlayers;
       const action = joinable
-        ? element("a", "Join", { href: link("./", { game: id }), className: "button play" })
-        : element("span", game.state === "playing" ? "In progress" : "Full", { className: "muted" });
+        ? element("a", "Join", { href: link("./", { game: id }), className: "button in-page" })
+        : game.state === "playing"
+          ? element("a", "Watch", { href: link("./", { watch: id }), className: "button watch in-page" })
+          : element("span", "Full", { className: "muted" });
       const cells = [game.title, game.host, MODES[game.mode], game.map, SKILLS[game.skill - 1]];
       return row([...cells.map((text) => text.slice(0, 40)), `${game.players}/${game.maxPlayers}`], action);
     });
-  $("#games tbody").replaceChildren(...gameRows);
+  replaceRows($("#games tbody"), gameRows);
   $("#empty").hidden = gameRows.length > 0;
 
   // A game that is still running, or already being resumed, can't be resumed
@@ -74,14 +84,15 @@ function render() {
     .sort(([, a], [, b]) => b.savedAt - a.savedAt)
     .slice(0, MAX_SAVES_SHOWN)
     .map(([id, save]) => {
+      if (!resumes.has(id)) resumes.set(id, newGameId());
       const resume = element("a", "Resume", {
-        href: link("./", { game: newGameId(), host: 1, resume: id }),
-        className: "button play",
+        href: link("./", { game: resumes.get(id), host: 1, resume: id }),
+        className: "button in-page",
       });
       const cells = [save.title, save.host, MODES[save.mode], save.map];
       return row([...cells.map((text) => text.slice(0, 40)), String(save.players), ago(save.savedAt)], resume);
     });
-  $("#saves tbody").replaceChildren(...saveRows);
+  replaceRows($("#saves tbody"), saveRows);
   $("#saved").hidden = saveRows.length === 0;
 }
 
@@ -96,7 +107,7 @@ fillSelect(fields.skill, SKILLS.map((label, i) => [i + 1, label]), 3);
 fillSelect(fields.map, MAPS.map((m) => [m, m]), "E1M1");
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  play(link("./", {
+  open(link("./", {
     game: newGameId(),
     host: 1,
     title: fields.title.value.trim() || `${name.value.trim() || "Marine"}'s game`,
@@ -107,8 +118,9 @@ form.addEventListener("submit", (event) => {
   }));
 });
 
-// Games open in this page, where Doom is downloading or already downloaded
-function play(href) {
+// Games open in this page, where Doom is downloading or already downloaded,
+// and so do spectators' views, which draw maps from Doom's files
+function open(href) {
   history.pushState(null, "", href);
   leaving = true;
   fire.stop();
@@ -117,20 +129,21 @@ function play(href) {
     mqtt.onclose = () => {};
     mqtt.close();
   }
-  showGame(true);
   scrollTo(0, 0);
-  import("./play.js");
+  show(view());
 }
 
 document.addEventListener("click", (event) => {
-  const a = event.target.closest("a.play");
+  const a = event.target.closest("a.in-page");
   // Other clicks open a new tab as usual
   if (!a || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  play(a.href);
+  open(a.href);
 });
 
 // Starts a game right away, with the settings in the form for new games
+$("#watch-all").href = link("./", { watch: "" });
+
 $("#quick").addEventListener("submit", (event) => {
   event.preventDefault();
   form.requestSubmit();
@@ -139,7 +152,7 @@ $("#quick").addEventListener("submit", (event) => {
 // Doom downloads while people look around, games start right away after
 const preload = $("#preload");
 const [preloadText, preloadBar] = preload.children;
-const unwatch = watch(({ received, total, downloading }) => {
+const unwatch = watchProgress(({ received, total, downloading }) => {
   if (!downloading) return;
   preload.className = "downloading";
   preloadText.textContent = `Downloading Doom: ${(received / 1e6).toFixed(1)}${total ? ` of ${(total / 1e6).toFixed(1)}` : ""} MB`;

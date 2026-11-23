@@ -40,6 +40,12 @@ The lobby and the games share `web/index.html`. A game opens in place, so the
 download of Doom (31 MB, mostly the Freedoom WAD) that starts with the lobby
 carries on, or is already done (`web/js/files.js`).
 
+Spectators watch games from above, one or all at once, with the scores
+(`?watch=<game>`, or `?watch=` for all). The host publishes where the players
+and monsters are to `doomq/watch/<game>` nine times a second, read from Doom
+by `doom/src/doom/d_watch.c`, and the page draws the maps from the WAD the
+way Doom's automap does (`web/js/watch.js`, `web/js/wad.js`).
+
 The lobby plays Freedoom's E1M1 from the first click or key press until the
 game starts, at Doom's music volume. `bin/build.sh` renders it from the WAD
 the way the game plays it, with `doom/tools/oplrender.c`, and encodes it with

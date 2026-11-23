@@ -14,7 +14,7 @@ const notify = () => listeners.forEach((listener) => listener(progress));
 // Calls back with { received, total, downloading } now and as bytes arrive.
 // total is 0 while unknown, downloading is false while all comes from the
 // browser's cache. Returns a function that stops the calls.
-export function watch(listener) {
+export function watchProgress(listener) {
   listeners.add(listener);
   listener(progress);
   return () => listeners.delete(listener);

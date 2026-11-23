@@ -1,7 +1,7 @@
 // Plays through the lobby and games in Chrome.
 // Needs the web app and a broker running: docker compose up --build
 // The hidden tab test also needs a display: xvfb-run npm test
-import { after, before, test } from "node:test";
+import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
 import puppeteer from "puppeteer";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -18,11 +18,16 @@ before(async () => {
 
 after(() => browser?.close());
 
+// Players from earlier tests would keep playing, and slow the later tests
+const contexts = [];
+afterEach(() => Promise.all(contexts.splice(0).map((context) => context.close().catch(() => {}))));
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Every player gets its own browser profile, like separate machines
 async function player(name, from = browser) {
   const context = await from.createBrowserContext();
+  contexts.push(context);
   const page = await context.newPage();
   page.lines = [];
   page.on("console", (message) => page.lines.push(message.text()));
@@ -139,7 +144,7 @@ test("players join a game and play it over MQTT", async () => {
 
   const lobby = await player("Watcher");
   const row = await lobby.waitForSelector(listing(title));
-  assert.match(await row.evaluate((tr) => tr.innerText), /2\/4\tIn progress/);
+  assert.match(await row.evaluate((tr) => tr.innerText), /2\/4\tWatch/);
 
   // Doom has no drop-in
   await lobby.goto(guest.url());
@@ -157,12 +162,38 @@ test("a player who closes the tab doesn't stall the others", async () => {
   await Promise.all([waitForLine(bob, "doom: 10,"), waitForLine(carol, "doom: 10,")]);
   await sleep(1_000);
 
-  // Doom would wait for Carol's moves until she times out, 10 s
+  // Doom would wait for Carol's moves until she times out, 10 s, and send
+  // Bob a keepalive now and then. A game going on sends him 35 a second.
   const received = await countPackets(bob);
   await carol.close();
-  await sleep(2_000);
+  await sleep(3_000);
   const packets = await received();
-  assert.ok(packets > 50, `Bob received ${packets} packets in 2 s`);
+  assert.ok(packets > 45, `Bob received ${packets} packets in 3 s`);
+});
+
+test("spectators watch a game from above, with the scores", async () => {
+  const [host, guest] = await Promise.all([player("Hanna"), player("Ozzy")]);
+  const title = `Watched ${Date.now().toString(36)}`;
+  await startGame(host, guest, title);
+
+  const fan = await player("Fan");
+  const watch = await fan.waitForSelector(`${listing(title)} >>> a.watch`);
+  await Promise.all([fan.waitForNavigation(), watch.click()]);
+  await fan.waitForFunction(() => document.querySelectorAll(".match tbody tr").length === 2);
+  const names = await fan.$$eval(".match tbody tr", (rows) => rows.map((tr) => tr.cells[0].textContent));
+  assert.deepEqual(names.sort(), ["Hanna", "Ozzy"]);
+  assert.equal(await fan.$eval(".match thead th:nth-child(2)", (th) => th.textContent), "Frags");
+
+  // The map, and the marines on it
+  await fan.waitForFunction(() => document.querySelector(".match .banner").hidden, { timeout: 30_000 });
+  const pixels = await fan.$eval(".match canvas", (canvas) => {
+    const { data } = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+    return data.filter((value, i) => i % 4 === 3 && value > 0).length;
+  });
+  assert.ok(pixels > 1000, `${pixels} pixels drawn`);
+
+  await host.close();
+  await fan.waitForFunction(() => document.querySelector(".match .banner").textContent === "Game over");
 });
 
 test("a saved game can be resumed", async () => {

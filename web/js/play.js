@@ -19,7 +19,7 @@ import {
   settingsFromQuery,
   topics,
 } from "./doomq.js";
-import { downloads, watch } from "./files.js";
+import { downloads, watchProgress } from "./files.js";
 import { burn } from "./fire.js";
 import { stopMusic } from "./music.js";
 
@@ -235,6 +235,8 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       ...["-window", "-nogui", "-pet", playerName, ...role.args],
     ],
     canvas: $("#canvas"),
+    // What spectators see, see doom/src/doom/d_watch.c and watch.js
+    onWatch: hosting ? (watch) => mqtt.publish(topics.watch(gameId), JSON.stringify(watch)) : undefined,
     // Compiled by files.js while the page waited
     instantiateWasm(imports, receive) {
       WebAssembly.instantiate(wasm, imports).then((instance) => receive(instance, wasm));
@@ -290,7 +292,7 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
 } else {
   try {
-    const unwatch = watch(({ received, total, downloading }) => {
+    const unwatch = watchProgress(({ received, total, downloading }) => {
       if (!downloading || received === total) return; // done in the lobby, or kept from a visit before
       loading(`Downloading Doom… ${megabytes(received)}${total ? ` of ${megabytes(total)}` : ""}`, received, total);
     });

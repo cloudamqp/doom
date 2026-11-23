@@ -78,6 +78,7 @@
 #include "statdump.h"
 
 #include "d_main.h"
+#include "d_watch.h"
 
 //
 // D-DoomLoop()
@@ -394,6 +395,7 @@ EMSCRIPTEN_KEEPALIVE void D_RunFrame()
     I_StartFrame();
 
     TryRunTics(); // will run at least one tic
+    D_Watch();
 
     S_UpdateSounds(players[consoleplayer].mo); // move positional sounds
 

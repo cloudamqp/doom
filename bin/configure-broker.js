@@ -26,6 +26,7 @@ const TOPICS = {
   games: "doomq/games/+/+/+",
   saves: "doomq/saves/+",
   savedata: "doomq/savedata/+",
+  watch: "doomq/watch/+",
 };
 
 const [amqpUrl, configPath = fileURLToPath(new URL("../web/js/config.js", import.meta.url))] = process.argv.slice(2);

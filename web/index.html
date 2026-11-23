@@ -52,6 +52,7 @@
             <span class="lights" aria-hidden="true"></span>
             <h2>Games</h2>
             <code>doomq/lobby/+</code>
+            <a id="watch-all" class="in-page" href="./?watch=">Watch all</a>
           </div>
           <table id="games">
             <thead>
@@ -102,6 +103,8 @@
           <dd>One message per Doom packet. Players send their moves to the host, and the host sends everyone's moves back.</dd>
           <dt><code>doomq/saves/&lt;game&gt;</code></dt>
           <dd>Autosaves every two minutes, retained in the broker, so the lobby can offer to resume a game.</dd>
+          <dt><code>doomq/watch/&lt;game&gt;</code></dt>
+          <dd>Where the players and monsters are, and the scores, nine times a second, for anyone who wants to watch.</dd>
         </dl>
       </section>
     </main>
@@ -133,6 +136,39 @@
         <span><kbd>Shift</kbd> run</span>
         <span><kbd>F</kbd> fullscreen</span>
       </p>
+    </main>
+
+    <main id="watch" hidden>
+      <div class="watching">
+        <h1>Spectating</h1>
+        <p>
+          Every host publishes its game to <code>doomq/watch/&lt;game&gt;</code> nine times a second, drawn here the way
+          Doom's automap would.
+        </p>
+        <a id="all-games" href="./?watch=">All games</a>
+      </div>
+      <div id="arena"></div>
+      <p id="nothing">No games in progress right now. This page shows them as soon as they start.</p>
+      <template id="match">
+        <article class="window match">
+          <div class="titlebar">
+            <span class="lights" aria-hidden="true"></span>
+            <h2></h2>
+            <p class="details"></p>
+            <code></code>
+          </div>
+          <div class="field">
+            <canvas></canvas>
+            <p class="banner"></p>
+          </div>
+          <table class="scores">
+            <thead>
+              <tr><th>Player</th><th>Frags</th><th>Health</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </article>
+      </template>
     </main>
 
     <div id="overlay" hidden>
