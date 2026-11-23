@@ -11,9 +11,11 @@ export const turnTo = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to 
 export const side = (line, point) => (line.x2 - line.x1) * (point.y - line.y1) - (line.y2 - line.y1) * (point.x - line.x1);
 export const inFront = (line, point) => side(line, point) < 0;
 
-// The point of a line nearest to a point
-export function closestOn(line, point) {
+// The point of a line nearest to a point, at least a margin from the line's ends
+export function closestOn(line, point, margin = 0) {
   const [dx, dy] = [line.x2 - line.x1, line.y2 - line.y1];
-  const along = Math.max(0, Math.min(1, ((point.x - line.x1) * dx + (point.y - line.y1) * dy) / (dx * dx + dy * dy)));
+  const length = Math.hypot(dx, dy);
+  const inset = Math.min(margin, length / 2) / length;
+  const along = Math.max(inset, Math.min(1 - inset, ((point.x - line.x1) * dx + (point.y - line.y1) * dy) / length ** 2));
   return { x: line.x1 + dx * along, y: line.y1 + dy * along };
 }

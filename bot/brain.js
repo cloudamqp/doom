@@ -15,6 +15,7 @@ import {
   MF_SOLID,
   MF_SPECIAL,
   NO_WEAPON_CHANGE,
+  RADIUS,
   STEP,
   TELEPORTERS,
   TELEPORT_DESTINATION,
@@ -47,7 +48,7 @@ const RIDE_PATIENCE = 10 * SECOND;
 const DOOR_PATIENCE = 3;
 const REACH_PATIENCE = 2 * SECOND;
 const TARGET_PATIENCE = 5 * SECOND;
-// How long it leaves alone what it could not get to
+// How long it leaves alone what it could not get to, at first
 const STUCK_BAN = 60 * SECOND;
 // Moving less than this far in a second, the bot is stuck
 const STUCK = 24;
@@ -67,7 +68,7 @@ export class Brain {
   #sectors; // as of this tic and the one before
   #before;
   #banned = new Map(); // goal or enemy key -> the tic it is let back in
-  #tries = new Map(); // key -> times the bot has pressed or crossed a goal, or given up on an enemy
+  #tries = new Map(); // key -> times the bot has pressed, crossed or given up on it
   #goal;
   #route = [];
   #at = 0; // how far along the route the bot is
@@ -78,7 +79,7 @@ export class Brain {
   #knocks = 0; // times it pressed use on the door in its way
   #watching; // what a switch set off: { tag, until }
   #riding; // the lift under the bot: { sector, floor it had as the bot got on, since, spot to stand on }
-  #target; // { id, health, since }
+  #target; // the enemy shot at last: { id, health, since it was picked or hurt }
   #strafe = 1;
   #stuck = { tic: 0, x: 0, y: 0, strikes: 0 };
   #shaking; // stuck, the bot moves at random: { until, direction }
@@ -170,6 +171,13 @@ export class Brain {
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
   }
 
+  // Leaves alone what is out of reach, twice as long every time
+  #giveUp(key, tics) {
+    this.#ban(key, tics * 2 ** (this.#tries.get(key) ?? 0));
+    this.#tried(key);
+    if (key === this.#goal?.key) this.#drop();
+  }
+
   #drop() {
     this.#crossing = false;
     this.#goal = undefined;
@@ -191,17 +199,12 @@ export class Brain {
     const enemies = things.filter((thing) => isEnemy(thing, game));
     const inSight = enemies.filter((enemy) => enemy.visible && distance(self, enemy) < AIM_RANGE && !this.#isBanned(`enemy:${enemy.id}`));
     const target = pickTarget(self, inSight, this.#target?.id);
-    if (!target) {
-      this.#target = undefined;
-      return undefined;
-    }
+    if (!target) return undefined;
+    // An enemy that comes in and out of sight is still the same one
     if (target.id !== this.#target?.id || target.health < this.#target.health) {
       this.#target = { id: target.id, health: target.health, since: this.#tic };
     } else if (this.#tic - this.#target.since > TARGET_PATIENCE) {
-      // Out of reach, and more so every time
-      const key = `enemy:${target.id}`;
-      this.#tried(key);
-      this.#ban(key, TARGET_PATIENCE * 2 ** this.#tries.get(key));
+      this.#giveUp(`enemy:${target.id}`, 2 * TARGET_PATIENCE);
     }
     if (this.#tic % STRAFE_INTERVAL === 0) this.#strafe = -this.#strafe;
 
@@ -322,10 +325,7 @@ export class Brain {
     if (distance(stuck, self) < STUCK) {
       // A turn of the golden angle each time tries every way out in the end
       this.#shaking = { until: this.#tic + SHAKE, direction: (this.#shaking?.direction ?? 0) + GOLDEN_ANGLE };
-      if (++stuck.strikes >= 3) {
-        this.#ban(this.#goal.key, STUCK_BAN);
-        this.#drop();
-      }
+      if (++stuck.strikes >= 3) this.#giveUp(this.#goal.key, STUCK_BAN);
     }
     Object.assign(stuck, { tic: this.#tic, x: self.x, y: self.y });
   }
@@ -388,7 +388,8 @@ export class Brain {
         break;
       }
       case "use": {
-        const point = closestOn(goal.line, self);
+        // Use reaches along where the player faces: at the line's very end it may miss
+        const point = closestOn(goal.line, self, RADIUS);
         if (distance(self, point) > USE_RANGE - CELL && !late) return { velocity: toward(self, point, true), buttons: 0 };
         const buttons = this.#use();
         if (!buttons && !late) return this.#stay(angleTo(self, point));
