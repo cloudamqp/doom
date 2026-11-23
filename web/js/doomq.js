@@ -1,4 +1,4 @@
-// What the lobby and the game page share: topics, game settings and links.
+// What the lobby and the games share: topics, game settings and links.
 //
 //   doomq/lobby/<game>               retained game listing, owned by the host
 //   doomq/games/<game>/<to>/<from>   Doom packets between peers
@@ -38,6 +38,21 @@ export function link(path, query = {}) {
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   if (params.has("broker")) url.searchParams.set("broker", brokerUrl);
   return url.href;
+}
+
+// The page shows the lobby, or a game when its address has one
+export const inGame = () => new URLSearchParams(location.search).has("game");
+
+export function showGame(shown) {
+  document.querySelector("#lobby").hidden = shown;
+  document.querySelector("#game").hidden = !shown;
+}
+
+// The broker connection, in the page header
+export function setStatus(text, ok = false) {
+  const status = document.querySelector("#status");
+  status.textContent = text;
+  status.classList.toggle("ok", ok);
 }
 
 export const newGameId = () => randomHex(6);

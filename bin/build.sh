@@ -54,5 +54,7 @@ fi
 
 make -C doom -j"$(nproc)"
 cp doom/build/doom.js doom/build/doom.wasm web/
+# The page shows download progress with these, servers may compress the files
+(cd web && stat -c '"%n": %s' doom.js doom.wasm freedoom1.wad | paste -sd, | sed 's/.*/{&}/') > web/files.json
 
 echo "Built into web/ with $(emcc --version | head -1)"

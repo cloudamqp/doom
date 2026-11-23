@@ -9,8 +9,12 @@ import {
   newGameId,
   parseListing,
   parseSave,
+  setStatus,
+  showGame,
   topics,
 } from "./doomq.js";
+import { downloads, watch } from "./files.js";
+import { burn } from "./fire.js";
 
 // Hosts refresh their listing every 5 s, so a quiet one is gone
 const STALE_AFTER = 15_000;
@@ -21,6 +25,10 @@ const MAX_SAVES_SHOWN = 20;
 const $ = (selector) => document.querySelector(selector);
 const games = new Map(); // id -> { game, seen }
 const saves = new Map(); // id -> save summary
+const fire = burn($(".hero .fire"));
+let mqtt;
+let pruning;
+let leaving = false; // a game opened in this page
 
 function element(tag, text, attrs = {}) {
   const el = Object.assign(document.createElement(tag), attrs);
@@ -51,7 +59,7 @@ function render() {
     .map(([id, { game }]) => {
       const joinable = game.state === "waiting" && game.players < game.maxPlayers;
       const action = joinable
-        ? element("a", "Join", { href: link("play.html", { game: id }), className: "button" })
+        ? element("a", "Join", { href: link("./", { game: id }), className: "button play" })
         : element("span", game.state === "playing" ? "In progress" : "Full", { className: "muted" });
       const cells = [game.title, game.host, MODES[game.mode], game.map, SKILLS[game.skill - 1]];
       return row([...cells.map((text) => text.slice(0, 40)), `${game.players}/${game.maxPlayers}`], action);
@@ -67,19 +75,14 @@ function render() {
     .slice(0, MAX_SAVES_SHOWN)
     .map(([id, save]) => {
       const resume = element("a", "Resume", {
-        href: link("play.html", { game: newGameId(), host: 1, resume: id }),
-        className: "button",
+        href: link("./", { game: newGameId(), host: 1, resume: id }),
+        className: "button play",
       });
       const cells = [save.title, save.host, MODES[save.mode], save.map];
       return row([...cells.map((text) => text.slice(0, 40)), String(save.players), ago(save.savedAt)], resume);
     });
   $("#saves tbody").replaceChildren(...saveRows);
   $("#saved").hidden = saveRows.length === 0;
-}
-
-function setStatus(text, ok = false) {
-  $("#status").textContent = text;
-  $("#status").classList.toggle("ok", ok);
 }
 
 const name = $("#name");
@@ -93,7 +96,7 @@ fillSelect(fields.skill, SKILLS.map((label, i) => [i + 1, label]), 3);
 fillSelect(fields.map, MAPS.map((m) => [m, m]), "E1M1");
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  location.href = link("play.html", {
+  play(link("./", {
     game: newGameId(),
     host: 1,
     title: fields.title.value.trim() || `${name.value.trim() || "Marine"}'s game`,
@@ -101,11 +104,61 @@ form.addEventListener("submit", (event) => {
     skill: fields.skill.value,
     map: fields.map.value,
     monsters: fields.monsters.checked ? 1 : 0,
-  });
+  }));
 });
 
-try {
-  const mqtt = await MqttClient.connect(brokerUrl);
+// Games open in this page, where Doom is downloading or already downloaded
+function play(href) {
+  history.pushState(null, "", href);
+  leaving = true;
+  fire.stop();
+  clearInterval(pruning);
+  if (mqtt) {
+    mqtt.onclose = () => {};
+    mqtt.close();
+  }
+  showGame(true);
+  scrollTo(0, 0);
+  import("./play.js");
+}
+
+document.addEventListener("click", (event) => {
+  const a = event.target.closest("a.play");
+  // Other clicks open a new tab as usual
+  if (!a || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  play(a.href);
+});
+
+$(".actions .button").addEventListener("click", (event) => {
+  event.preventDefault();
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+  fields.title.focus({ preventScroll: true });
+});
+
+// Doom downloads while people look around, games start right away after
+const preload = $("#preload");
+const [preloadText, preloadBar] = preload.children;
+const unwatch = watch(({ received, total }) => {
+  preloadText.textContent = `Downloading Doom: ${(received / 1e6).toFixed(1)}${total ? ` of ${(total / 1e6).toFixed(1)}` : ""} MB`;
+  if (total) Object.assign(preloadBar, { max: total, value: received });
+});
+downloads.then(
+  () => {
+    unwatch();
+    preloadText.textContent = "Doom is ready to play";
+    preload.className = "ready";
+  },
+  () => {
+    unwatch();
+    preloadText.textContent = "Doom didn't download, reload the page to try again";
+    preload.className = "failed";
+  },
+);
+
+async function listen() {
+  mqtt = await MqttClient.connect(brokerUrl);
+  if (leaving) return mqtt.close();
   mqtt.onclose = () => setStatus("Disconnected from broker, reload to retry");
 
   // Every visitor helps keep the broker tidy
@@ -117,6 +170,7 @@ try {
   };
 
   mqtt.onmessage = (topic, payload) => {
+    fire.flare(); // fed by the broker
     const [, kind, id] = topic.split("/");
     if (kind === "lobby") {
       const game = parseListing(payload);
@@ -130,11 +184,12 @@ try {
     render();
   };
   await Promise.all([mqtt.subscribe(topics.lobby), mqtt.subscribe(topics.saves)]);
+  if (leaving) return;
   setStatus("Connected", true);
 
   // Clear listings whose host vanished without its last will firing,
   // e.g. when the broker restarted
-  setInterval(() => {
+  pruning = setInterval(() => {
     for (const [id, { seen }] of games) {
       if (performance.now() - seen < STALE_AFTER) continue;
       games.delete(id);
@@ -143,7 +198,7 @@ try {
     for (const [id, save] of saves) expire(id, save);
     render();
   }, 5_000);
-} catch (error) {
-  setStatus(error.message);
 }
+
+listen().catch((error) => leaving || setStatus(error.message));
 render();
