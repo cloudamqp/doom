@@ -25,6 +25,11 @@
 - Co-op respawns on Freedoom's E4M1-E4M3, whose player starts face 360°, no
   longer fail with "G_CheckSpot: unexpected angle 8192" (backported from
   [chocolate-doom#1823][5]).
+- A program can play instead of the keyboard and mouse: `Module.bot` is asked
+  for the player's moves every tic, and reads the world with the `B_` functions
+  of `src/doom/b_bot.c`. `-nodraw` runs the game without a window, also in Node,
+  and `-singletics` runs a tic per frame however long frames take. `../bot` plays
+  like this.
 - The server's deadlock check reads its receive window the right way round
   (backported from [chocolate-doom@8aa4ed6][6]).
 - Spectators (drones) share one address for the game, `NET_MQTT_SPECTATORS`:
