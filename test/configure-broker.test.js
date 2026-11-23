@@ -47,10 +47,11 @@ test("only DooMQ's topics get through", async () => {
   a.publish("elsewhere", "dropped");
   a.publish("doomq/lobby/too/deep", "dropped");
   a.publish("doomq/lobby/game", "delivered");
+  a.publish("doomq/watch/game", "delivered");
   await new Promise((resolve) => setTimeout(resolve, 500));
   a.close();
   b.close();
-  assert.deepEqual(received, ["doomq/lobby/game"]);
+  assert.deepEqual(received, ["doomq/lobby/game", "doomq/watch/game"]);
 });
 
 test("every run starts over with a new password", async () => {

@@ -514,6 +514,150 @@ td .muted {
   margin: 8px 0 0;
 }
 
+#watch-all {
+  color: var(--smoke);
+  font-size: 15px;
+}
+
+#watch-all:hover {
+  color: var(--bone);
+}
+
+td .watch {
+  background: var(--rim);
+  color: var(--bone);
+}
+
+td .watch:hover {
+  background: #3a3a3a;
+}
+
+/* Spectators */
+
+#watch {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 8px var(--gutter) 56px;
+}
+
+.watching {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 28px;
+  margin-bottom: 24px;
+}
+
+.watching h1 {
+  margin: 0;
+  color: var(--bone);
+  font: 56px/1 var(--pixel);
+}
+
+.watching p {
+  max-width: 44rem;
+  margin: 0;
+}
+
+.watching code {
+  color: var(--signal);
+}
+
+#all-games {
+  color: var(--smoke);
+}
+
+#arena {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
+  gap: 24px;
+}
+
+/* One game, as big as it gets */
+#arena:has(.match:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#nothing {
+  padding: 48px 0;
+  color: var(--smoke);
+  text-align: center;
+}
+
+.match .details {
+  margin: 0;
+  color: var(--smoke);
+  font-size: 15px;
+}
+
+.field {
+  position: relative;
+  background: #0d0d0d;
+}
+
+.field canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+/* One game: the map, and the scores beside it */
+#arena:has(.match:only-child) .match {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: start;
+}
+
+#arena:has(.match:only-child) .titlebar {
+  grid-column: 1 / -1;
+}
+
+#arena:has(.match:only-child) .field canvas {
+  aspect-ratio: auto;
+  height: min(72vh, 780px);
+}
+
+#arena:has(.match:only-child) .scores {
+  border-left: 1px solid var(--rim);
+}
+
+.banner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--bone);
+  font: 40px/1 var(--pixel);
+  background: rgb(13 13 13 / 0.55);
+}
+
+.scores td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scores i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.scores td:nth-child(2) {
+  color: var(--bone);
+  font: 26px/1 var(--pixel);
+}
+
+.scores .leader td:nth-child(2) {
+  color: var(--fire);
+}
+
+.scores td:last-child {
+  color: var(--smoke);
+  text-align: left;
+}
+
 /* A game */
 
 #game {
@@ -651,6 +795,18 @@ footer a:hover {
 }
 
 @media (max-width: 1000px) {
+  #arena:has(.match:only-child) .match {
+    display: block;
+  }
+
+  #arena:has(.match:only-child) .field canvas {
+    aspect-ratio: 4 / 3;
+    height: auto;
+  }
+
+  #arena:has(.match:only-child) .scores {
+    border-left: 0;
+  }
   .board {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "games" "create" "saved";

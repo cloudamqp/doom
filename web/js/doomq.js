@@ -4,9 +4,11 @@
 //   doomq/games/<game>/<to>/<from>   Doom packets between peers
 //   doomq/saves/<game>               retained summary of the game's last save
 //   doomq/savedata/<game>            retained savegame file
+//   doomq/watch/<game>               what spectators see, a few times a second
 //
 // The host runs the Doom server in its browser and is always peer 1. It
-// shares the game's saves, which a resumed game loads on every player's side.
+// shares the game's saves, which a resumed game loads on every player's side,
+// and what goes on in the game.
 
 import config from "./config.js";
 import { randomHex } from "./mqtt.js";
@@ -22,6 +24,8 @@ export const topics = {
   saves: "doomq/saves/+",
   save: (game) => `doomq/saves/${game}`,
   saveData: (game) => `doomq/savedata/${game}`,
+  watching: "doomq/watch/+",
+  watch: (game) => `doomq/watch/${game}`,
 };
 
 export const MODES = { coop: "Co-op", deathmatch: "Deathmatch", altdeath: "Deathmatch 2.0" };
@@ -40,12 +44,16 @@ export function link(path, query = {}) {
   return url.href;
 }
 
-// The page shows the lobby, or a game when its address has one
-export const inGame = () => new URLSearchParams(location.search).has("game");
+// The page shows the lobby, a game, or games for spectators, by its address.
+// Returns the view's name, which is also its element's id and its script.
+export function view(search = location.search) {
+  const params = new URLSearchParams(search);
+  return params.has("game") ? "game" : params.has("watch") ? "watch" : "lobby";
+}
 
-export function showGame(shown) {
-  document.querySelector("#lobby").hidden = shown;
-  document.querySelector("#game").hidden = !shown;
+export function show(name) {
+  for (const main of document.querySelectorAll("body > main")) main.hidden = main.id !== name;
+  return import({ lobby: "./lobby.js", game: "./play.js", watch: "./watch.js" }[name]);
 }
 
 // The broker connection, in the page header
@@ -110,6 +118,29 @@ export function parseListing(payload) {
 export function parseSave(payload) {
   const save = parseJson(payload);
   return validGame(save) && save.players >= 1 && save.players <= MAX_PLAYERS && Number.isFinite(save.savedAt) ? save : null;
+}
+
+// What a host publishes for spectators, see doom/src/doom/d_watch.c
+export function parseWatch(payload) {
+  const watch = parseJson(payload);
+  const numbers = (object, keys) => keys.every((key) => Number.isFinite(object[key]));
+  const player = (p) =>
+    Number.isInteger(p?.number) &&
+    p.number >= 0 &&
+    p.number < MAX_PLAYERS &&
+    typeof p.name === "string" &&
+    typeof p.dead === "boolean" &&
+    numbers(p, ["x", "y", "angle", "health", "armor", "frags", "kills"]);
+  const valid =
+    MAPS.includes(watch?.map) &&
+    ["level", "intermission", "finale", "demo"].includes(watch.state) &&
+    numbers(watch, ["time"]) &&
+    typeof watch.deathmatch === "boolean" &&
+    Array.isArray(watch.players) &&
+    watch.players.length <= MAX_PLAYERS &&
+    watch.players.every(player) &&
+    (watch.monsters === undefined || (Array.isArray(watch.monsters) && watch.monsters.every(Number.isFinite)));
+  return valid ? watch : null;
 }
 
 // A savegame starts with a 24 byte description and a 16 byte version, then
