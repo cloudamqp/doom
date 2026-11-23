@@ -10,64 +10,76 @@ import { network } from "./net.js";
 // Where Doom looks for the save of a resumed game, -loadgame 0
 const RESUME_FILE = "saves/doomsav0.dsg";
 const LOBBY = topics.listing("");
+// NET_PACKET_TYPE_DISCONNECT, see doom/src/net_defs.h
+const DISCONNECT = Uint8Array.of(0, 8);
 
 const joinable = (game) => game?.state === "waiting" && game.players < game.maxPlayers;
 
+// Looks in the lobby for the game with the given id, or else the first one
+// that waits for players, however long that takes. Resolves to its listing
+// with its id, and the save it starts from if it is a resumed one.
+async function find(broker, wanted) {
+  const mqtt = await MqttClient.connect(broker);
+  const found = Promise.withResolvers();
+  const saves = new Map(); // topic -> callback for its retained message
+  mqtt.onclose = () => found.reject(new Error("Lost connection to the broker"));
+  mqtt.onmessage = (topic, payload) => {
+    saves.get(topic)?.(payload);
+    if (!topic.startsWith(LOBBY)) return;
+    const [id, game] = [topic.slice(LOBBY.length), parseListing(payload)];
+    if (joinable(game) && (!wanted || id === wanted)) found.resolve({ id, ...game });
+  };
+  await mqtt.subscribe(topics.lobby);
+  const game = await found.promise;
+  if (game.resumedFrom) {
+    const topic = topics.saveData(game.resumedFrom);
+    const fetched = new Promise((resolve) => saves.set(topic, resolve));
+    await mqtt.subscribe(topic);
+    game.save = await gunzip(await fetched);
+  }
+  mqtt.onclose = () => {};
+  mqtt.close();
+  return game;
+}
+
 // Joins the game with the given id, or else the first one in the lobby
-// that waits for players, however long that takes. Resolves to Doom's exit
-// status when the game is over.
+// that waits for players. Resolves to Doom's exit status when the game is
+// over.
 //   broker  ws://user:pass@host:15672/mqtt
 //   name    the player's name
 //   bot     given Doom's module, returns what plays, see doom.js
 //   say     is told what goes on, print gets Doom's output
 export async function join({ broker, game: wanted, name, bot, say, print }) {
-  const mqtt = await MqttClient.connect(broker);
-  const peerId = newPeerId();
-  const retained = new Map(); // topic -> callback for its retained message
-  let joined; // id of the game the bot is in
-  let packets; // its network there
-  let found; // callback for a game to join
+  say(wanted ? `Looking for game ${wanted}` : "Waiting in the lobby for a game to join");
+  const game = await find(broker, wanted);
+  say(`Joining "${game.title}" on ${game.map}, hosted by ${game.host}`);
 
+  // A will has to be said as the connection opens, and it names the game,
+  // so the game gets a connection of its own. The broker publishes it if
+  // the bot goes without a goodbye: it tells the Doom server that the bot
+  // left, before the others wait 10 s for the bot to time out.
+  const peerId = newPeerId();
+  const will = { topic: topics.packet(game.id, SERVER_ID, peerId), payload: DISCONNECT };
+  const mqtt = await MqttClient.connect(broker, { will });
+  const { deliver, net } = network(mqtt, game.id, peerId);
   const over = Promise.withResolvers();
   mqtt.onclose = () => over.reject(new Error("Lost connection to the broker"));
   mqtt.onmessage = (topic, payload) => {
-    retained.get(topic)?.(payload);
-    if (topic.startsWith(LOBBY)) {
-      const [id, game] = [topic.slice(LOBBY.length), parseListing(payload)];
-      if (joinable(game) && (!wanted || id === wanted)) found?.({ id, ...game });
-      // The host clears its listing as it leaves
-      if (id === joined && !game) over.resolve(0);
-    } else {
-      packets?.deliver(topic, payload);
-    }
+    // The host clears its listing as it leaves
+    if (topic === topics.listing(game.id) && !parseListing(payload)) over.resolve(0);
+    deliver(topic, payload);
   };
-
-  say(wanted ? `Looking for game ${wanted}` : "Waiting in the lobby for a game to join");
-  const listed = new Promise((resolve) => (found = resolve));
-  await mqtt.subscribe(topics.lobby);
-  const game = await Promise.race([listed, over.promise]);
-  found = undefined;
-  joined = game.id;
-  packets = network(mqtt, joined, peerId);
-  say(`Joining "${game.title}" on ${game.map}, hosted by ${game.host}`);
-  await mqtt.subscribe(topics.inbox(joined, peerId));
-
-  // The retained message on a topic
-  const fetch = (topic) =>
-    new Promise((resolve) => {
-      retained.set(topic, resolve);
-      mqtt.subscribe(topic);
-    });
-  // A resumed game starts from the host's save on every player's side
-  const files = game.resumedFrom ? { [RESUME_FILE]: await gunzip(await fetch(topics.saveData(game.resumedFrom))) } : {};
+  await mqtt.subscribe(topics.inbox(game.id, peerId));
+  await mqtt.subscribe(topics.listing(game.id));
 
   await startDoom({
     args: ["-connect", String(SERVER_ID), "-pet", name, "-savedir", "saves"],
-    files,
+    // A resumed game starts from the host's save on every player's side
+    files: game.save ? { [RESUME_FILE]: game.save } : {},
     bot,
     print,
+    net,
     exited: over.resolve,
-    net: packets.net,
   });
   return over.promise.finally(() => mqtt.close());
 }

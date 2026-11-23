@@ -256,6 +256,26 @@ test("a player who closes the tab doesn't stall the others", async () => {
   assert.ok(packets > 45, `Bob received ${packets} packets in 3 s`);
 });
 
+test("a bot that is killed doesn't stall the others", async (t) => {
+  const [host, bob] = await Promise.all([player("Host"), player("Bob")]);
+  const title = `Killed ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  const marvin = bot("--name", "Marvin", new URL(host.url()).searchParams.get("game"));
+  t.after(() => marvin.kill());
+  await Promise.all([join(bob, title), waitForLine(marvin, "Joining")]);
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await launch(host);
+  await Promise.all([waitForLine(bob, "doom: 10,"), waitForLine(marvin, "Entering E1M1")]);
+  await sleep(1_000);
+
+  // As with a closed tab: the broker says the bot's goodbye for it
+  const received = await countPackets(bob);
+  marvin.kill("SIGKILL");
+  await sleep(3_000);
+  const packets = await received();
+  assert.ok(packets > 45, `Bob received ${packets} packets in 3 s`);
+});
+
 test("spectators watch a game from above, with the scores", async () => {
   const [host, guest] = await Promise.all([player("Hanna"), player("Ozzy")]);
   const title = `Watched ${Date.now().toString(36)}`;
