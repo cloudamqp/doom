@@ -215,6 +215,47 @@ test("spectators learn when a host doesn't share its game", async () => {
   );
 });
 
+test("a player far away doesn't slow the game down", async () => {
+  const [host, guest] = await Promise.all([player("Stockholm"), player("Auckland")]);
+  // About 310 ms there and back, give or take 100 ms, in order as over TCP
+  await guest.evaluateOnNewDocument(() => {
+    const delay = () => 155 + Math.random() * 100;
+    const wait = setInterval(() => {
+      if (!window.Module?.net) return;
+      clearInterval(wait);
+      const { send, recv } = Module.net;
+      const held = [];
+      let sent = 0;
+      let received = 0;
+      Module.net.send = (to, data) => {
+        sent = Math.max(sent, performance.now() + delay());
+        setTimeout(() => send(to, data), sent - performance.now());
+      };
+      Module.net.recv = () => {
+        for (let packet; (packet = recv()); ) held.push({ packet, at: (received = Math.max(received, performance.now() + delay())) });
+        return held[0]?.at <= performance.now() ? held.shift().packet : undefined;
+      };
+    }, 50);
+  });
+  await guest.reload();
+  await guest.waitForFunction(() => document.querySelector("#status").textContent === "Connected");
+  await startGame(host, guest, `Far away ${Date.now().toString(36)}`);
+
+  // How fast the game goes, as spectators see it, once its clocks settled
+  const game = new URL(host.url()).searchParams.get("game");
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const snapshots = [];
+  mqtt.onmessage = (topic, payload) => snapshots.push([performance.now(), JSON.parse(new TextDecoder().decode(payload)).time]);
+  await mqtt.subscribe(`doomq/watch/${game}`);
+  await sleep(5_000);
+  snapshots.length = 0;
+  await sleep(10_000);
+  mqtt.close();
+  const [[start, from], [end, to]] = [snapshots[0], snapshots.at(-1)];
+  const speed = (to - from) / ((end - start) / 1000);
+  assert.ok(speed > 33, `${speed.toFixed(1)} tics a second, full speed is 35`);
+});
+
 test("a saved game can be resumed", async () => {
   const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
   const title = `Saved ${Date.now().toString(36)}`;

@@ -19,6 +19,9 @@
   limit is off: some Freedoom maps outgrow vanilla's 180 KB.
 - Fatal errors stop the game loop and go to `Module.onError` before the
   shutdown messages, and connections time out after 10 s instead of 4 s.
+- Players run up to 16 tics (~450 ms) ahead instead of 8, so a player
+  across the world, with some jitter, doesn't slow the game down for
+  everyone.
 - Co-op respawns on Freedoom's E4M1-E4M3, whose player starts face 360°, no
   longer fail with "G_CheckSpot: unexpected angle 8192" (backported from
   [chocolate-doom#1823][5]).
