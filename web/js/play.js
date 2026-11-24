@@ -304,6 +304,8 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
 
 for (const a of document.querySelectorAll(".back")) a.href = link("./");
 $("#game").classList.toggle("spectating", spectating);
+// Leaving the page leaves the game, so the page's other links open beside it
+for (const a of document.querySelectorAll(".bar a:not(.back), footer a")) a.target = "_blank";
 
 if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");

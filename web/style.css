@@ -87,8 +87,26 @@ code {
   color: var(--bone);
 }
 
-#status {
+/* A quiet link on the right, like lavinmq.com's top menu */
+.nav {
   margin-left: auto;
+  color: var(--smoke);
+  font-size: 15px;
+  text-decoration: none;
+  text-underline-offset: 5px;
+}
+
+.nav:hover,
+.nav[aria-current] {
+  color: var(--bone);
+}
+
+.nav[aria-current] {
+  text-decoration: underline;
+  text-decoration-color: var(--fire);
+}
+
+#status {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1032,5 +1050,18 @@ footer a:hover {
 
   .titlebar code {
     margin-left: 0;
+  }
+
+  /* The link starts the second row, the connection and music end it */
+  .bar {
+    column-gap: 16px;
+  }
+
+  .nav {
+    margin-left: 0;
+  }
+
+  #status {
+    margin-left: auto;
   }
 }
