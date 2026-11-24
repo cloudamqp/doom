@@ -34,6 +34,7 @@
 #include "net_defs.h"
 #include "net_io.h"
 #include "net_loop.h"
+#include "net_mqtt.h"
 #include "net_packet.h"
 #include "net_query.h"
 #include "net_server.h"
@@ -148,6 +149,10 @@ static net_gamesettings_t sv_settings;
 
 static unsigned int recvwindow_start;
 static net_client_recv_t recvwindow[BACKUPTICS][NET_MAXPLAYERS];
+
+// Where spectators get the game, and the next tic to send there
+static net_addr_t *spectators;
+static unsigned int spectators_sendseq;
 
 #define NET_SV_ExpandTicNum(b) NET_ExpandTicNum(recvwindow_start, (b))
 
@@ -396,13 +401,15 @@ static void NET_SV_SendWaitingData(net_client_t *client)
 // Find the latest tic which has been acknowledged as received by
 // all clients.
 
+// Spectators (drones) don't count: a slow one would hold up the players.
+
 static unsigned int NET_SV_LatestAcknowledged(void)
 {
     unsigned int lowtic = UINT_MAX;
     int i;
 
     for (i = 0; i < MAXNETNODES; ++i) {
-        if (ClientConnected(&clients[i])) {
+        if (ClientConnected(&clients[i]) && !clients[i].drone) {
             if (clients[i].acknowledged < lowtic) {
                 lowtic = clients[i].acknowledged;
             }
@@ -804,6 +811,12 @@ static void StartGame(void)
 
     memset(recvwindow, 0, sizeof(recvwindow));
     recvwindow_start = 0;
+
+    if (spectators == NULL) {
+        spectators = net_mqtt_module.ResolveAddress(NET_MQTT_SPECTATORS);
+        NET_ReferenceAddress(spectators);
+    }
+    spectators_sendseq = 0;
 }
 
 // Returns true when all nodes have indicated readiness to start the game.
@@ -1131,7 +1144,7 @@ static void NET_SV_ParseGameDataACK(net_packet_t *packet, net_client_t *client)
     }
 }
 
-static void NET_SV_SendTics(net_client_t *client, unsigned int start, unsigned int end)
+static net_packet_t *NET_SV_TicsPacket(net_client_t *client, unsigned int start, unsigned int end)
 {
     net_packet_t *packet;
     unsigned int i;
@@ -1161,11 +1174,35 @@ static void NET_SV_SendTics(net_client_t *client, unsigned int start, unsigned i
         NET_WriteFullTiccmd(packet, cmd, sv_settings.lowres_turn);
     }
 
-    // Send packet
+    return packet;
+}
+
+static void NET_SV_SendTics(net_client_t *client, unsigned int start, unsigned int end)
+{
+    net_packet_t *packet = NET_SV_TicsPacket(client, start, end);
 
     NET_Conn_SendPacket(&client->connection, packet);
-
     NET_FreePacket(packet);
+}
+
+// Every spectator gets the same tics, so the first one to reach a tic
+// sends it, once, to where all spectators listen. The host's upload stays
+// the same however many watch. A spectator that misses tics still asks
+// for them by itself, see NET_SV_ParseResendRequest.
+
+static void NET_SV_SendSpectatorTics(net_client_t *client, unsigned int start, unsigned int end)
+{
+    net_packet_t *packet;
+
+    if (end < spectators_sendseq) {
+        return;
+    }
+
+    packet = NET_SV_TicsPacket(client, start, end);
+    NET_SendPacket(spectators, packet);
+    NET_FreePacket(packet);
+
+    spectators_sendseq = end + 1;
 }
 
 // Parse a retransmission request from a client
@@ -1430,7 +1467,13 @@ static void NET_SV_PumpSendQueue(net_client_t *client)
     if (starttic < 0) starttic = 0;
 
     NET_Log("server: send tics %d-%d to %s", starttic, endtic, NET_AddrToString(client->addr));
-    NET_SV_SendTics(client, starttic, endtic);
+
+    if (client->drone) {
+        NET_SV_SendSpectatorTics(client, starttic, endtic);
+    }
+    else {
+        NET_SV_SendTics(client, starttic, endtic);
+    }
 
     ++client->sendseq;
 }

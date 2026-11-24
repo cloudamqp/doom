@@ -120,6 +120,15 @@
            {"state":"level","map":"E1M1","time":191,"deathmatch":true,"players":[
             {"number":0,"name":"Hanna","x":766,"y":592,"angle":224,"health":53,...},
             {"number":1,"name":"Ozzy","x":2485,"y":-560,"angle":96,"health":24,...}]}</code></pre>
+      <p>
+        Spectators can also watch in Doom, if they join before the game starts. Each joins Doom's server as a drone,
+        which sends no moves, and all of them listen on peer 0: the host publishes each tic there once, and the broker
+        copies it to every spectator. Doom's server doesn't wait for spectators, so a slow one only falls behind itself.
+      </p>
+      <pre class="window terminal"><code><b>CONNECT</b>    <span>will</span> <i>doomq/games/465811044f7b/1/2734151093</i>  00 08  <span>Doom's disconnect</span>
+<b>SUBSCRIBE</b>  <i>doomq/games/465811044f7b/2734151093/+</i>
+<b>SUBSCRIBE</b>  <i>doomq/games/465811044f7b/0/+</i>  <span>with every other spectator</span>
+<b>RECEIVE</b>    <i>doomq/games/465811044f7b/0/1</i>  <span>the game, published once for all</span></code></pre>
 
       <h2 class="step">The broker keeps it in check</h2>
       <p>LavinMQ does no game logic, but it decides what gets through:</p>

@@ -449,12 +449,17 @@ tbody tr:hover {
 
 td:last-child {
   text-align: right;
+  white-space: nowrap;
 }
 
 td .button {
   font-size: 22px;
   padding: 6px 14px 5px;
   border-radius: 10px;
+}
+
+td .button + .button {
+  margin-left: 8px;
 }
 
 td .muted {
@@ -922,6 +927,11 @@ pre.terminal i {
   gap: 8px 22px;
   color: var(--smoke);
   font-size: 15px;
+}
+
+#game:not(.spectating) .keys .spectator,
+#game.spectating .keys .player {
+  display: none;
 }
 
 kbd {

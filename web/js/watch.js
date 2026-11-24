@@ -101,6 +101,7 @@ class Match {
     const latest = this.snapshots.at(-1);
     if (this.ended) return "Game over";
     if (!latest) {
+      if (this.listing?.spectators === false) return "This game's host doesn't share it with spectators";
       if (this.listing?.state === "waiting") return "Waiting for players";
       if (this.playing !== null && now - this.playing > SILENT_AFTER) return "This game's host doesn't share it with spectators";
       return "Waiting for the host";

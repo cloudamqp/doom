@@ -58,6 +58,7 @@
 // Data.
 #include "dstrings.h"
 #include "sounds.h"
+#include "net_client.h"
 
 //
 // STATUS BAR DATA
@@ -1232,7 +1233,7 @@ void ST_initData(void)
     int		i;
 
     st_firsttime = true;
-    plyr = &players[consoleplayer];
+    plyr = &players[drone ? displayplayer : consoleplayer];
 
     st_clock = 0;
     st_chatstate = StartChatState;

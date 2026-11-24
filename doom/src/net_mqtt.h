@@ -22,4 +22,8 @@
 
 extern net_module_t net_mqtt_module;
 
+// The peer id every spectator (drone) listens on. The server sends the
+// game to it once and the broker copies it to each spectator.
+#define NET_MQTT_SPECTATORS "0"
+
 #endif /* #ifndef NET_MQTT_H */

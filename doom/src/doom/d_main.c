@@ -397,7 +397,7 @@ EMSCRIPTEN_KEEPALIVE void D_RunFrame()
     TryRunTics(); // will run at least one tic
     D_Watch();
 
-    S_UpdateSounds(players[consoleplayer].mo); // move positional sounds
+    S_UpdateSounds(players[drone ? displayplayer : consoleplayer].mo); // move positional sounds
 
     // Update display, next frame, with current state if no profiling is on
     if (screenvisible && !nodrawers) {

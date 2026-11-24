@@ -215,6 +215,111 @@ test("spectators learn when a host doesn't share its game", async () => {
   );
 });
 
+// Doom only takes spectators before the game starts: wait until the host's
+// server talks to this one, it sends waiting room news every second
+async function spectate(fan, title) {
+  // Found and clicked at once, as the row is redrawn when players join
+  const click = (title) => {
+    const row = [...document.querySelectorAll("#games tbody tr")].find((tr) => tr.cells[0].textContent === title);
+    const link = [...(row?.querySelectorAll("a") ?? [])].find((a) => a.textContent === "Spectate");
+    link?.click();
+    return link;
+  };
+  await Promise.all([fan.waitForNavigation(), fan.waitForFunction(click, {}, title)]);
+  await fan.waitForFunction(() => window.Module?.net);
+  const received = await countPackets(fan);
+  for (let tries = 0; (await received()) < 2; tries++) {
+    assert.ok(tries < 100, `the server never answered:\n${fan.lines.join("\n")}`);
+    await sleep(100);
+  }
+}
+
+// What the host's Doom server sends, by recipient, over some time
+async function hostPackets(host, ms) {
+  const game = new URL(host.url()).searchParams.get("game");
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const sent = new Map();
+  mqtt.onmessage = (topic) => {
+    const to = Number(topic.split("/")[3]);
+    sent.set(to, (sent.get(to) ?? 0) + 1);
+  };
+  await mqtt.subscribe(`doomq/games/${game}/+/1`);
+  await sleep(ms);
+  mqtt.close();
+  return sent;
+}
+
+test("spectators watch in Doom, all from one copy of the game", async () => {
+  const [host, guest, ann, ben] = await Promise.all([player("Hanna"), player("Ozzy"), player("Ann"), player("Ben")]);
+  const title = `Spectated ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  await join(guest, title);
+  await Promise.all([spectate(ann, title), spectate(ben, title)]);
+  // Spectators aren't players
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/4 players"));
+  await launch(host);
+  await Promise.all([guest, ann, ben].map((page) => waitForLine(page, "doom: 10,")));
+  assert.equal(await ann.$eval("#hint", (p) => p.textContent), "You're spectating.");
+  await sleep(1_000);
+
+  // The host sends the game to where all spectators listen, peer 0, once,
+  // and to each of them only now and then
+  const received = await Promise.all([ann, ben].map(countPackets));
+  const sent = await hostPackets(host, 3_000);
+  const toGuest = Math.max(...[...sent].filter(([to]) => to > 1 && to < 2 ** 31).map(([, count]) => count));
+  const toEach = [...sent].filter(([to]) => to >= 2 ** 31).map(([, count]) => count);
+  assert.ok(toGuest > 90, `${toGuest} packets to the guest in 3 s`);
+  assert.ok(Math.abs(sent.get(0) - toGuest) < 15, `${sent.get(0)} packets to spectators, ${toGuest} to the guest`);
+  assert.ok(toEach.every((count) => count < 10), `${toEach} packets to each spectator`);
+  for (const count of await Promise.all(received.map((count) => count()))) {
+    assert.ok(count > 90, `a spectator received ${count} packets in 3 s`);
+  }
+});
+
+test("a spectator who falls behind doesn't hold up the game", async () => {
+  const [host, guest, fan] = await Promise.all([player("Hanna"), player("Ozzy"), player("Fan")]);
+  const title = `Slow fan ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  await join(guest, title);
+  await spectate(fan, title);
+  await launch(host);
+  await Promise.all([waitForLine(guest, "doom: 10,"), waitForLine(fan, "doom: 10,")]);
+  await sleep(1_000);
+
+  // As a phone that suspends the tab: no acknowledgements, no keepalives
+  const cdp = await fan.createCDPSession();
+  await cdp.send("Debugger.enable");
+  await cdp.send("Debugger.pause");
+  const received = await countPackets(guest);
+  await sleep(4_000);
+  const packets = await received();
+  await cdp.send("Debugger.resume");
+  assert.ok(packets > 120, `the guest received ${packets} packets in 4 s`);
+});
+
+test("a host can keep a game to its players", async () => {
+  const [host, lobby] = await Promise.all([player("Hermit"), player("Fan")]);
+  const title = `Players only ${Date.now().toString(36)}`;
+  await host.click("#create [name=spectators]");
+  await createGame(host, title);
+
+  const row = await lobby.waitForSelector(listing(title));
+  assert.match(await row.evaluate((tr) => tr.innerText), /1\/4\tJoin$/);
+  await lobby.goto(`${WEB_URL}/?game=${new URL(host.url()).searchParams.get("game")}&spectate`);
+  await lobby.waitForSelector("#overlay:not([hidden])");
+  assert.equal(await lobby.$eval("#message", (p) => p.textContent), "This game's host doesn't let anyone watch.");
+
+  await lobby.goto(`${WEB_URL}/index.html`);
+  await host.waitForFunction(() => document.querySelector("#loading").hidden);
+  await launch(host);
+  // No watching from above either
+  await lobby.waitForFunction(
+    (title) => [...document.querySelectorAll("#games tbody tr")].some((tr) => tr.cells[0].textContent === title && tr.innerText.endsWith("1/4\tPlaying")),
+    {},
+    title,
+  );
+});
+
 test("a player far away doesn't slow the game down", async () => {
   const [host, guest] = await Promise.all([player("Stockholm"), player("Auckland")]);
   // About 310 ms there and back, give or take 100 ms, in order as over TCP

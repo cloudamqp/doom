@@ -27,6 +27,12 @@
   [chocolate-doom#1823][5]).
 - The server's deadlock check reads its receive window the right way round
   (backported from [chocolate-doom@8aa4ed6][6]).
+- Spectators (drones) share one address for the game, `NET_MQTT_SPECTATORS`:
+  the server sends each tic there once, and the broker copies it to every
+  spectator. The server doesn't wait for drones, so they don't acknowledge
+  tics, and `-nodes` counts players only. Drones can switch players with F12
+  in deathmatch too, and get the status bar, messages and sounds of the
+  player they watch.
 
 `src/doom/d_watch.c` hands the page what spectators see, nine times a second:
 the players, their scores and the monsters.

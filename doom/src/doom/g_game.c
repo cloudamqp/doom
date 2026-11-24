@@ -71,6 +71,7 @@
 #include "r_sky.h"
 
 #include "g_game.h"
+#include "net_client.h"
 
 #define SAVEGAMESIZE 0x2c000
 
@@ -649,13 +650,19 @@ static void SetMouseButtons(unsigned int buttons_mask)
 //
 boolean G_Responder(event_t *ev)
 {
-    // allow spy mode changes even during the demo
-    if (gamestate == GS_LEVEL && ev->type == ev_keydown && ev->data1 == key_spy && (singledemo || !deathmatch)) {
+    // allow spy mode changes even during the demo, and for spectators
+    // (drones) in deathmatch too
+    if (gamestate == GS_LEVEL && ev->type == ev_keydown && ev->data1 == key_spy && (singledemo || !deathmatch || drone)) {
         // spy mode
         do {
             displayplayer++;
             if (displayplayer == MAXPLAYERS) displayplayer = 0;
         } while (!playeringame[displayplayer] && displayplayer != consoleplayer);
+        // A spectator sees the status bar and messages of whoever it watches
+        if (drone) {
+            ST_Start();
+            HU_Start();
+        }
         return true;
     }
 

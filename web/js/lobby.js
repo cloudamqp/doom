@@ -42,11 +42,26 @@ function fillSelect(select, options, selected) {
   for (const [value, label] of options) select.append(element("option", label, { value, selected: String(value) === String(selected) }));
 }
 
-function row(cells, action) {
+function row(cells, ...actions) {
   const tr = element("tr");
   tr.append(...cells.map((text) => element("td", text)), element("td"));
-  tr.lastChild.append(action);
+  tr.lastChild.append(...actions);
   return tr;
+}
+
+// Join while there's room, spectate in game until it starts, then watch from
+// above, unless the host keeps the game to the players
+function gameActions(id, game) {
+  const watchable = game.spectators !== false;
+  const button = (text, query, className = "button in-page") => element("a", text, { href: link("./", query), className });
+  const actions = [];
+  if (game.state === "waiting") {
+    if (game.players < game.maxPlayers) actions.push(button("Join", { game: id }));
+    if (watchable) actions.push(button("Spectate", { game: id, spectate: 1 }, "button watch in-page"));
+  } else if (watchable) {
+    actions.push(button("Watch", { watch: id }, "button watch in-page"));
+  }
+  return actions.length ? actions : [element("span", game.state === "waiting" ? "Full" : "Playing", { className: "muted" })];
 }
 
 // Leaves the rows alone unless they changed, as listings come again every
@@ -65,14 +80,8 @@ function render() {
   const gameRows = [...games.entries()]
     .sort(([, a], [, b]) => a.game.title.localeCompare(b.game.title))
     .map(([id, { game }]) => {
-      const joinable = game.state === "waiting" && game.players < game.maxPlayers;
-      const action = joinable
-        ? element("a", "Join", { href: link("./", { game: id }), className: "button in-page" })
-        : game.state === "playing"
-          ? element("a", "Watch", { href: link("./", { watch: id }), className: "button watch in-page" })
-          : element("span", "Full", { className: "muted" });
       const cells = [game.title, game.host, MODES[game.mode], game.map, SKILLS[game.skill - 1]];
-      return row([...cells.map((text) => text.slice(0, 40)), `${game.players}/${game.maxPlayers}`], action);
+      return row([...cells.map((text) => text.slice(0, 40)), `${game.players}/${game.maxPlayers}`], ...gameActions(id, game));
     });
   replaceRows($("#games tbody"), gameRows);
   $("#empty").hidden = gameRows.length > 0;
@@ -115,6 +124,7 @@ form.addEventListener("submit", (event) => {
     skill: fields.skill.value,
     map: fields.map.value,
     monsters: fields.monsters.checked ? 1 : 0,
+    spectators: fields.spectators.checked ? 1 : 0,
   }));
 });
 

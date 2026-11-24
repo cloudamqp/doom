@@ -3,12 +3,14 @@ import {
   MAX_PLAYERS,
   MODES,
   SERVER_ID,
+  SPECTATORS,
   brokerUrl,
   deleteSave,
   doomArgs,
   gunzip,
   gzip,
   isGameId,
+  isSpectator,
   link,
   modeArgs,
   newPeerId,
@@ -36,13 +38,15 @@ const $ = (selector) => document.querySelector(selector);
 const query = new URLSearchParams(location.search);
 const gameId = query.get("game");
 const hosting = query.has("host");
+const spectating = !hosting && query.has("spectate");
 const resumeId = query.get("resume");
 const playerName = (localStorage.getItem("doomq:name") || "Marine").slice(0, 20);
-const peerId = hosting ? SERVER_ID : newPeerId();
+const peerId = hosting ? SERVER_ID : newPeerId(spectating);
 
 // NET_PACKET_TYPE_DISCONNECT, see doom/src/net_defs.h
 const DISCONNECT = Uint8Array.of(0, 8);
-const inboxPrefix = topics.packet(gameId, peerId, "");
+// Spectators get the game itself where they all listen, the rest on their own
+const inboxes = [peerId, ...(spectating ? [SPECTATORS] : [])].map((to) => topics.packet(gameId, to, ""));
 
 const inbox = [];
 const lastSeen = new Map(); // peer -> time of its last packet, the host counts players with it
@@ -85,11 +89,12 @@ function receive(topic, payload) {
     const game = parseListing(payload);
     if (game) describe(game);
     else fail("The host left the game.");
-  } else if (topic.startsWith(inboxPrefix)) {
-    const from = Number(topic.slice(inboxPrefix.length));
+  } else {
+    const prefix = inboxes.find((inbox) => topic.startsWith(inbox));
+    const from = prefix && Number(topic.slice(prefix.length));
     if (!Number.isInteger(from) || from < 1 || from > 0xffffffff) return;
     inbox.push({ from, data: payload });
-    lastSeen.set(from, performance.now());
+    if (!isSpectator(from)) lastSeen.set(from, performance.now());
   }
 }
 
@@ -127,8 +132,8 @@ async function host(mqtt) {
     const save = summary && parseSave(summary);
     if (!save || !data) throw new Error("The saved game is gone.");
     files[RESUME_FILE] = await unpack(data);
-    const { title, mode, skill, map, monsters, players } = save;
-    settings = { title, mode, skill, map, monsters };
+    const { title, mode, skill, map, monsters, spectators = true, players } = save;
+    settings = { title, mode, skill, map, monsters, spectators };
     maxPlayers = players;
     resumedFrom = resumeId;
     // Doom starts by itself once as many players as saved have joined.
@@ -158,6 +163,8 @@ async function host(mqtt) {
 
   return {
     args: ["-server", "-servername", settings.title, ...args],
+    // What spectators see from above, see doom/src/doom/d_watch.c and watch.js
+    onWatch: settings.spectators ? (watch) => mqtt.publish(topics.watch(gameId), JSON.stringify(watch)) : undefined,
     files,
     hint: resumeId
       ? `The game starts once ${maxPlayers} players have joined, or press Space to start now.`
@@ -188,12 +195,21 @@ async function guest(mqtt) {
   const game = listing && parseListing(listing);
   if (!game) throw new Error("No such game.");
   if (game.state !== "waiting") throw new Error("The game has already started.");
+  if (spectating && game.spectators === false) throw new Error("This game's host doesn't let anyone watch.");
 
   const files = {};
   if (game.resumedFrom) {
     const data = await retained(mqtt, topics.saveData(game.resumedFrom));
     if (!data) throw new Error("The saved game is gone.");
     files[RESUME_FILE] = await unpack(data);
+  }
+  if (spectating) {
+    return {
+      args: ["-connect", String(SERVER_ID), "-drone"],
+      files,
+      hint: "You're spectating. The host starts the game once everyone has joined.",
+      playingHint: "You're spectating.",
+    };
   }
   return { args: ["-connect", String(SERVER_ID)], files, hint: "The host starts the game once everyone has joined." };
 }
@@ -235,8 +251,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       ...["-window", "-nogui", "-pet", playerName, ...role.args],
     ],
     canvas: $("#canvas"),
-    // What spectators see, see doom/src/doom/d_watch.c and watch.js
-    onWatch: hosting ? (watch) => mqtt.publish(topics.watch(gameId), JSON.stringify(watch)) : undefined,
+    onWatch: role.onWatch,
     // Compiled by files.js while the page waited
     instantiateWasm(imports, receive) {
       WebAssembly.instantiate(wasm, imports).then((instance) => receive(instance, wasm));
@@ -259,7 +274,8 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       if (line.startsWith("doom: 10,")) {
         running = true;
         stopMusic(); // Doom plays its own
-        $("#hint").hidden = true;
+        $("#hint").textContent = role.playingHint ?? "";
+        $("#hint").hidden = !role.playingHint;
         role.started?.();
       }
       const saved = line.match(/^doom: 13, saved (.+)$/);
@@ -287,6 +303,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
 }
 
 for (const a of document.querySelectorAll(".back")) a.href = link("./");
+$("#game").classList.toggle("spectating", spectating);
 
 if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
   fail("No such game.");
@@ -310,7 +327,7 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
       setStatus("Disconnected");
       fail("Lost connection to the broker.");
     };
-    await mqtt.subscribe(topics.inbox(gameId, peerId));
+    for (const to of [peerId, ...(spectating ? [SPECTATORS] : [])]) await mqtt.subscribe(topics.inbox(gameId, to));
     const role = await (hosting ? host(mqtt) : guest(mqtt));
     const doom = await downloads;
     unwatch();

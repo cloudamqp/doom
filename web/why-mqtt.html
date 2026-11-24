@@ -113,7 +113,8 @@
               <td>Fan-out</td>
               <td>
                 The host publishes the players and the scores to <code>doomq/watch/&lt;game&gt;</code> once, the broker
-                delivers them to every spectator.
+                delivers them to every spectator. Spectators in Doom get the game the same way, on
+                <code>doomq/games/&lt;game&gt;/0/1</code>.
               </td>
             </tr>
           </tbody>
@@ -123,7 +124,7 @@
       <h2>The topics</h2>
       <p>Five topics carry everything. The broker allows these and nothing else.</p>
       <pre class="window terminal"><code>doomq/lobby/&lt;game&gt;                 <span>retained JSON listing, refreshed every 5 s</span>
-doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;     <span>Doom packets, 35 a second per player</span>
+doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;     <span>Doom packets, 35 a second per player, to 0 for spectators</span>
 doomq/saves/&lt;game&gt;                 <span>retained JSON summary of the last save</span>
 doomq/savedata/&lt;game&gt;              <span>retained gzipped savegame</span>
 doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</span></code></pre>
@@ -136,6 +137,10 @@ doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</
         <li>
           A four player game puts about 210 messages a second through the broker, and as many out. Spectators add about
           9 a second each, 300 to 600 bytes, with the monsters' positions twice a second.
+        </li>
+        <li>
+          Spectators in Doom get 35 packets a second each from the broker. The host publishes them once for all, so its
+          upload stays the same however many watch.
         </li>
         <li>A save is at most about 60 KB gzipped, every two minutes.</li>
       </ul>

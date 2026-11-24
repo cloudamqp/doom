@@ -681,9 +681,13 @@ static void NET_CL_ParseGameData(net_packet_t *packet)
     nowtime = I_GetTimeMS();
 
     // Whatever happens, we now need to send an acknowledgement of our
-    // current receive point.
+    // current receive point. Except drones: the server doesn't wait for
+    // them, see NET_SV_LatestAcknowledged.
 
-    if (!need_to_acknowledge) {
+    if (drone) {
+        gamedata_recv_time = nowtime;
+    }
+    else if (!need_to_acknowledge) {
         need_to_acknowledge = true;
         gamedata_recv_time = nowtime;
     }
