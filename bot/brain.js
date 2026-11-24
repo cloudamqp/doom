@@ -2,7 +2,7 @@
 // answers with its moves. Fighting comes first, then getting on with the
 // map, see combat.js and goals.js.
 
-import { aimAt, blocked, holds, inRange, incoming, isEnemy, pickTarget, pickWeapon, sidestep } from "./combat.js";
+import { aimAt, blocked, fought, holds, inRange, incoming, isEnemy, pickTarget, pickWeapon, sidestep } from "./combat.js";
 import {
   AIM_RANGE,
   BT_ATTACK,
@@ -48,8 +48,9 @@ const RIDE_PATIENCE = 10 * SECOND;
 const DOOR_PATIENCE = 3;
 const REACH_PATIENCE = 2 * SECOND;
 const TARGET_PATIENCE = 5 * SECOND;
-// How long it leaves alone what it could not get to, at first
+// How long it leaves alone what it could not get to, at first and at most
 const STUCK_BAN = 60 * SECOND;
+const MAX_BAN = 5 * 60 * SECOND;
 // Moving less than this far in a second, the bot is stuck
 const STUCK = 24;
 // And moves another way for this long
@@ -79,7 +80,7 @@ export class Brain {
   #knocks = 0; // times it pressed use on the door in its way
   #watching; // what a switch set off: { tag, until }
   #riding; // the lift under the bot: { sector, floor it had as the bot got on, since, spot to stand on }
-  #target; // the enemy shot at last: { id, health, since it was picked or hurt }
+  #target; // the enemy fought last, see fought() in combat.js
   #strafe = 1;
   #stuck = { tic: 0, x: 0, y: 0, strikes: 0 };
   #shaking; // stuck, the bot moves at random: { until, direction }
@@ -171,9 +172,22 @@ export class Brain {
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
   }
 
-  // Leaves alone what is out of reach, twice as long every time
+  // Fights an enemy for as long as that hurts it. One that the bot sees
+  // but can't hurt is left alone for a while, the bot has other things to
+  // do. One that gets hurt after all is as good as new.
+  #bearWith(target) {
+    const key = `enemy:${target.id}`;
+    this.#target = fought(this.#target, target);
+    if (this.#target.unhurt === 0) this.#tries.delete(key);
+    if (this.#target.unhurt <= TARGET_PATIENCE) return;
+    this.#target.unhurt = 0;
+    this.#giveUp(key, 2 * TARGET_PATIENCE);
+  }
+
+  // Leaves alone what is out of reach, twice as long every time, but not
+  // for good: things change
   #giveUp(key, tics) {
-    this.#ban(key, tics * 2 ** (this.#tries.get(key) ?? 0));
+    this.#ban(key, Math.min(MAX_BAN, tics * 2 ** (this.#tries.get(key) ?? 0)));
     this.#tried(key);
     if (key === this.#goal?.key) this.#drop();
   }
@@ -200,12 +214,7 @@ export class Brain {
     const inSight = enemies.filter((enemy) => enemy.visible && distance(self, enemy) < AIM_RANGE && !this.#isBanned(`enemy:${enemy.id}`));
     const target = pickTarget(self, inSight, this.#target?.id);
     if (!target) return undefined;
-    // An enemy that comes in and out of sight is still the same one
-    if (target.id !== this.#target?.id || target.health < this.#target.health) {
-      this.#target = { id: target.id, health: target.health, since: this.#tic };
-    } else if (this.#tic - this.#target.since > TARGET_PATIENCE) {
-      this.#giveUp(`enemy:${target.id}`, 2 * TARGET_PATIENCE);
-    }
+    this.#bearWith(target);
     if (this.#tic % STRAFE_INTERVAL === 0) this.#strafe = -this.#strafe;
 
     const far = distance(self, target);

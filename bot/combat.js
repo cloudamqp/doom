@@ -38,6 +38,15 @@ export function pickTarget(self, enemies, current) {
   return enemies.reduce((first, enemy) => (!first || urgency(enemy) < urgency(first) ? enemy : first), undefined);
 }
 
+// What the bot remembers of the enemy it fights, a tic on: { id, health,
+// unhurt }, with the tics it has fought this enemy since it last hurt it.
+// Healing, or a while out of sight, doesn't make it another enemy.
+export function fought(before, target) {
+  const same = before?.id === target.id;
+  const hurt = same && target.health < before.health;
+  return { id: target.id, health: target.health, unhurt: same && !hurt ? before.unhurt + 1 : 0 };
+}
+
 const melee = (weapon) => weapon === WEAPON.fist || weapon === WEAPON.chainsaw;
 
 // The best weapon the player has ammo for
