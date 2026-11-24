@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#141414" />
+    <title>Why MQTT · DooMQ</title>
+    <meta name="description" content="Why DooMQ runs Doom over MQTT, how Doom maps onto it, and what it uses in MQTT and LavinMQ." />
+    <link rel="icon" href="img/lavinmq.svg" />
+    <link rel="preload" href="fonts/jersey-10.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="js/why-mqtt.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <a class="brand back" href="./">DooMQ</a>
+      <a class="broker" href="https://lavinmq.com">brokered by <img src="img/lavinmq.svg" alt="" width="20" height="20" /> LavinMQ</a>
+      <span id="status">Connecting…</span>
+    </header>
+
+    <main class="article">
+      <h1>Why MQTT</h1>
+      <p class="lead">
+        Doom was written for a LAN, sending small packets straight to other computers. A web page can't do that. MQTT
+        over WebSockets can, and its topics, retained messages and last wills cover the rest of what a multiplayer game
+        needs.
+      </p>
+      <p id="now" hidden></p>
+
+      <h2>What Doom asks of a network</h2>
+      <p>
+        Doom's multiplayer is lockstep. Every player runs the whole game, and only the players' moves travel: one small
+        packet per player, 35 times a second, sent to the player who hosts. The host gathers everyone's moves and sends
+        them back to all. A game only moves on once it has the moves of every player.
+      </p>
+      <p>
+        That packet is tiny, 11 to 22 bytes here, and Doom takes care of losing one: it numbers its packets and asks for
+        the ones that don't arrive. So Doom needs little from a network: send these bytes to that player, quickly, and
+        let them through in any order.
+      </p>
+      <p>
+        A web page can't send UDP packets, but it can open a WebSocket, a connection to a server. A broker in the middle
+        turns that into what Doom wants: every browser connects once, and the broker passes each packet on to the player
+        it's for.
+      </p>
+
+      <h2>How Doom maps onto MQTT</h2>
+      <p>
+        Chocolate Doom, the version that runs here, keeps its network behind a small interface: send a packet to an
+        address, receive the next packet and its address. DooMQ adds an implementation of it that moves packets
+        between Doom and the page, about 170 lines of C, and the page publishes and subscribes. Nothing else in Doom's
+        network code changed.
+      </p>
+      <div class="window">
+        <div class="titlebar">
+          <span class="lights" aria-hidden="true"></span>
+          <h3>Doom on MQTT</h3>
+        </div>
+        <table class="mapping">
+          <thead>
+            <tr><th>Doom needs</th><th>MQTT has</th><th>In DooMQ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>A player's address</td>
+              <td>Topic levels</td>
+              <td>
+                Each player has a number, the host is 1. A packet goes to
+                <code>doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>Receiving packets</td>
+              <td>A subscription with a wildcard</td>
+              <td>
+                Each player subscribes to <code>doomq/games/&lt;game&gt;/&lt;me&gt;/+</code>, and the last level says who
+                sent it.
+              </td>
+            </tr>
+            <tr>
+              <td>Sending a packet, like UDP</td>
+              <td>QoS 0</td>
+              <td>One message per packet, no acknowledgements. Doom resends what goes missing.</td>
+            </tr>
+            <tr>
+              <td>Finding a game</td>
+              <td>Retained messages</td>
+              <td>
+                The host keeps a listing on <code>doomq/lobby/&lt;game&gt;</code>. A new visitor subscribes to
+                <code>doomq/lobby/+</code> and gets every listing at once.
+              </td>
+            </tr>
+            <tr>
+              <td>Noticing a host is gone</td>
+              <td>Last will</td>
+              <td>The host's will is an empty retained listing, which clears it from the lobby.</td>
+            </tr>
+            <tr>
+              <td>Noticing a player left</td>
+              <td>Last will</td>
+              <td>
+                A player's will is Doom's own disconnect packet, sent to the host. The game goes on at once instead of
+                waiting 10 seconds for the player to time out.
+              </td>
+            </tr>
+            <tr>
+              <td>Saved games</td>
+              <td>Retained binary messages</td>
+              <td>The host publishes Doom's savegame, gzipped, so anyone can resume the game from the lobby later.</td>
+            </tr>
+            <tr>
+              <td>Spectators</td>
+              <td>Fan-out</td>
+              <td>
+                The host publishes the players and the scores to <code>doomq/watch/&lt;game&gt;</code> once, the broker
+                delivers them to every spectator.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>The topics</h2>
+      <p>Five topics carry everything. The broker allows these and nothing else.</p>
+      <pre class="window terminal"><code>doomq/lobby/&lt;game&gt;                 <span>retained JSON listing, refreshed every 5 s</span>
+doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;     <span>Doom packets, 35 a second per player</span>
+doomq/saves/&lt;game&gt;                 <span>retained JSON summary of the last save</span>
+doomq/savedata/&lt;game&gt;              <span>retained gzipped savegame</span>
+doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</span></code></pre>
+
+      <h2>The traffic</h2>
+      <p>Measured in four player games here:</p>
+      <ul>
+        <li>Each player publishes 35 packets a second to the host, 11 to 13 bytes each.</li>
+        <li>The host publishes 35 a second to each other player, up to 22 bytes in a four player game.</li>
+        <li>
+          A four player game puts about 210 messages a second through the broker, and as many out. Spectators add about
+          9 a second each, 300 to 600 bytes, with the monsters' positions twice a second.
+        </li>
+        <li>A save is at most about 60 KB gzipped, every two minutes.</li>
+      </ul>
+      <p>
+        The topic is the biggest part of a packet: <code>doomq/games/37238d88cf2f/1/3735928559</code> is 37 bytes, and
+        a PUBLISH adds 4 more, against a 12 byte packet. That's still about 2 KB a second each way per player.
+      </p>
+
+      <h2>What MQTT gives here</h2>
+      <ul class="features">
+        <li><strong>MQTT over WebSockets.</strong> How a browser connects, and LavinMQ serves it on its HTTP port.</li>
+        <li><strong>QoS 0 publish and subscribe.</strong> Doom's netcode does its own acknowledgements, so the broker doesn't have to.</li>
+        <li><strong>Topic levels and the <code>+</code> wildcard.</strong> Addresses for players, games and kinds of message, with no setup per player.</li>
+        <li><strong>Retained messages.</strong> The lobby and the saves need no database. An empty retained message deletes one.</li>
+        <li><strong>Last wills.</strong> Presence for hosts, and a clean goodbye for players whose tab closes.</li>
+        <li><strong>Binary payloads.</strong> Doom's packets and savegames go as they are, listings and spectator updates as JSON.</li>
+        <li><strong>Clean sessions and keepalives.</strong> Nothing is kept for a player who's gone.</li>
+      </ul>
+      <p>
+        The page's MQTT 3.1.1 client is about 230 lines of JavaScript with no dependencies. A game needs only a small
+        part of MQTT.
+      </p>
+
+      <h2>What LavinMQ adds</h2>
+      <ul class="features">
+        <li>
+          <strong>MQTT over WebSockets on <code>/mqtt</code>,</strong> on the same port as the management interface and
+          the HTTP API.
+        </li>
+        <li><strong>A vhost of its own.</strong> DooMQ's username is <code>doomq:doomq</code>, vhost and user.</li>
+        <li>
+          <strong><a href="https://lavinmq.com/blog/lavinmq-210-mqtt-topic-permissions">Topic permissions</a>.</strong>
+          A permission group allows the five topic filters above, and the broker drops anything else.
+        </li>
+        <li>
+          <strong>Policies on MQTT sessions.</strong> LavinMQ keeps each MQTT session in a queue,
+          <code>mqtt.&lt;client id&gt;</code>, so a queue policy limits what a client that stops reading can pile up: 1 MiB,
+          oldest first out.
+        </li>
+        <li><strong>A connection limit on the vhost,</strong> 500.</li>
+        <li>
+          <strong>The HTTP API.</strong> <code>bin/configure-broker.js</code> sets all of the above up from scratch, so a
+          schedule can wipe the broker clean every day.
+        </li>
+      </ul>
+      <p>
+        The broker does no game logic. Players in the lobby clear out listings of hosts that vanished without their will
+        firing, and saves older than a day.
+      </p>
+
+      <h2>What it costs, and what's next</h2>
+      <p>
+        Every packet takes a detour through the broker, and lockstep makes everyone wait for the slowest player. In a
+        test with the round trip of a player in New Zealand, a host in Sweden and the broker in Amsterdam, a move took
+        200 to 250 ms to show up, for everyone. A broker roughly between the players keeps that detour short.
+      </p>
+      <p>
+        MQTT 5's topic aliases would shrink the 37 byte topic to a few bytes after the first packet. LavinMQ is working
+        on MQTT 5 support.
+      </p>
+
+      <p class="next">
+        <a class="button" href="./">Play a game</a>
+        <a href="https://lavinmq.com/documentation/mqtt-in-lavinmq">MQTT in LavinMQ</a>
+        <a href="https://github.com/84codes/lavinmq-workshop/tree/mqtt-doom">The source</a>
+      </p>
+    </main>
+
+    <footer>
+      <a href="https://github.com/84codes/lavinmq-workshop/tree/mqtt-doom">Source</a>
+      <a href="https://lavinmq.com">LavinMQ</a>
+      <a href="https://freedoom.github.io">Freedoom</a>
+      <a href="https://www.chocolate-doom.org">Chocolate Doom</a>
+    </footer>
+  </body>
+</html>

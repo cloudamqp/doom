@@ -256,6 +256,18 @@ test("a player far away doesn't slow the game down", async () => {
   assert.ok(speed > 33, `${speed.toFixed(1)} tics a second, full speed is 35`);
 });
 
+test("the Why MQTT page counts what's on the broker", async () => {
+  const [host, guest] = await Promise.all([player("Hanna"), player("Ozzy")]);
+  await startGame(host, guest, `Counted ${Date.now().toString(36)}`);
+
+  const context = await browser.createBrowserContext();
+  contexts.push(context);
+  const reader = await context.newPage();
+  await reader.goto(`${WEB_URL}/why-mqtt.html`);
+  await reader.waitForSelector("#now:not([hidden])");
+  assert.match(await reader.$eval("#now", (p) => p.textContent), /^Right now: \d+ games? in progress, \d+ players/);
+});
+
 test("a saved game can be resumed", async () => {
   const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
   const title = `Saved ${Date.now().toString(36)}`;
