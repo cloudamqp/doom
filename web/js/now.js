@@ -1,4 +1,4 @@
-// The Why MQTT page: what's on the broker right now, from the retained
+// What's on the broker right now, for the pages about DooMQ: from the retained
 // listings on doomq/lobby/+, as the lobby reads them.
 
 import { MqttClient } from "./mqtt.js";
