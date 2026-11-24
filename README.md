@@ -80,6 +80,9 @@ LAME.
   resumed game's first save replaces the save it was resumed from.
 - A save is 17 to 300 KB depending on the map, 120 KB on average across
   Freedoom's 36 maps, and a fifth of that gzipped: up to 60 KB per game.
+- Anyone with the credentials can publish a save, so players' browsers stop
+  unpacking one at 1 MB (`web/js/gzip.js`): a few KB of gzip can expand to
+  gigabytes.
 
 ## Development
 

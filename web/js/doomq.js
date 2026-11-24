@@ -159,11 +159,6 @@ export function readSaveHeader(data) {
   return { skill: data[40] + 1, map: `E${data[41]}M${data[42]}`, players: data.slice(43, 47).filter(Boolean).length };
 }
 
-// Savegames shrink to a fifth with gzip
-const pipe = async (data, transform) => new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(transform)).arrayBuffer());
-export const gzip = (data) => pipe(data, new CompressionStream("gzip"));
-export const gunzip = (data) => pipe(data, new DecompressionStream("gzip"));
-
 export function deleteSave(mqtt, game) {
   mqtt.publish(topics.save(game), "", { retain: true });
   mqtt.publish(topics.saveData(game), "", { retain: true });

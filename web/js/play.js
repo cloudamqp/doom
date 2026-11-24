@@ -7,8 +7,6 @@ import {
   brokerUrl,
   deleteSave,
   doomArgs,
-  gunzip,
-  gzip,
   isGameId,
   isSpectator,
   link,
@@ -23,6 +21,7 @@ import {
 } from "./doomq.js";
 import { downloads, watchProgress } from "./files.js";
 import { burn } from "./fire.js";
+import { gunzip, gzip } from "./gzip.js";
 import { stopMusic } from "./music.js";
 
 // Doom peers send a keepalive at least every 2 s
