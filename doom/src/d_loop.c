@@ -158,9 +158,11 @@ static boolean BuildNewTic(void)
 
         if (!net_client_connected && maketic - gameticdiv > 2) return false;
 
-        // Never go more than ~200ms ahead
+        // Never go more than ~450ms ahead. Chocolate Doom allows ~200ms,
+        // which a player across the world with some jitter runs out of,
+        // and the game slows down for everyone.
 
-        if (maketic - gameticdiv > 8) return false;
+        if (maketic - gameticdiv > 16) return false;
     }
     else {
         if (maketic - gameticdiv >= 5) return false;
