@@ -286,7 +286,8 @@ static void CheckAutoLaunch(void)
     int nodes;
 
     if (net_client_received_wait_data && net_client_wait_data.is_controller && expected_nodes > 0) {
-        nodes = net_client_wait_data.num_players + net_client_wait_data.num_drones;
+        // Players only: a resumed game waits for its players, not spectators
+        nodes = net_client_wait_data.num_players;
 
         if (nodes >= expected_nodes) {
             StartGame(NULL, NULL);

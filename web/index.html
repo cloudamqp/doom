@@ -74,6 +74,7 @@
             <label>Map <select name="map"></select></label>
             <label class="wide">Skill <select name="skill"></select></label>
             <label class="check"><input type="checkbox" name="monsters" checked /> Monsters</label>
+            <label class="check"><input type="checkbox" name="spectators" checked /> Spectators</label>
             <button>Create game</button>
           </div>
         </form>
@@ -107,7 +108,7 @@
           </div>
           <div>
             <dt><code>doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;</code></dt>
-            <dd>One message per Doom packet. Players send their moves to the host, and the host sends everyone's moves back.</dd>
+            <dd>One message per Doom packet. Players send their moves to the host, and the host sends everyone's moves back, once for all spectators.</dd>
           </div>
           <div>
             <dt><code>doomq/saves/&lt;game&gt;</code></dt>
@@ -141,11 +142,12 @@
       </div>
       <p id="hint"></p>
       <p class="keys">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
-        <span>mouse turn</span>
-        <span><kbd>Space</kbd> or click fire</span>
-        <span><kbd>E</kbd> use</span>
-        <span><kbd>Shift</kbd> run</span>
+        <span class="player"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+        <span class="player">mouse turn</span>
+        <span class="player"><kbd>Space</kbd> or click fire</span>
+        <span class="player"><kbd>E</kbd> use</span>
+        <span class="player"><kbd>Shift</kbd> run</span>
+        <span class="spectator"><kbd>F12</kbd> next player</span>
         <span><kbd>F</kbd> fullscreen</span>
       </p>
     </main>

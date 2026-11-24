@@ -1,7 +1,8 @@
 // What the lobby and the games share: topics, game settings and links.
 //
 //   doomq/lobby/<game>               retained game listing, owned by the host
-//   doomq/games/<game>/<to>/<from>   Doom packets between peers
+//   doomq/games/<game>/<to>/<from>   Doom packets between peers, to 0 for
+//                                    all spectators at once
 //   doomq/saves/<game>               retained summary of the game's last save
 //   doomq/savedata/<game>            retained savegame file
 //   doomq/watch/<game>               what spectators see, a few times a second
@@ -14,6 +15,8 @@ import config from "./config.js";
 import { randomHex } from "./mqtt.js";
 
 export const SERVER_ID = 1;
+// Every in-game spectator listens here, see doom/src/net_mqtt.h
+export const SPECTATORS = 0;
 export const MAX_PLAYERS = 4;
 
 export const topics = {
@@ -66,8 +69,12 @@ export function setStatus(text, ok = false) {
 export const newGameId = () => randomHex(6);
 export const isGameId = (id) => /^[0-9a-f]{12}$/.test(id ?? "");
 
-// Any id but the server's
-export const newPeerId = () => SERVER_ID + 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 0xfffffff0);
+// Players get ids from 2 to 2^31 - 1, spectators the same plus 2^31, so the
+// host can tell them apart
+const SPECTATOR_BIT = 0x80000000;
+export const newPeerId = (spectator = false) =>
+  (spectator ? SPECTATOR_BIT : 0) + 2 + (crypto.getRandomValues(new Uint32Array(1))[0] % (SPECTATOR_BIT - 2));
+export const isSpectator = (peer) => peer >= SPECTATOR_BIT;
 
 // Settings travel as query parameters from the lobby form to the host page
 export function settingsFromQuery(query) {
@@ -80,6 +87,7 @@ export function settingsFromQuery(query) {
     skill: skill >= 1 && skill <= 5 ? skill : 3,
     map: MAPS.includes(map) ? map : "E1M1",
     monsters: query.get("monsters") !== "0",
+    spectators: query.get("spectators") !== "0",
   };
 }
 
@@ -100,6 +108,7 @@ function validGame(game) {
     SKILLS[game.skill - 1] !== undefined &&
     MAPS.includes(game.map) &&
     typeof game.monsters === "boolean" &&
+    (game.spectators === undefined || typeof game.spectators === "boolean") &&
     Number.isInteger(game.players)
   );
 }

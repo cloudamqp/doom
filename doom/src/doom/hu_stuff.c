@@ -42,6 +42,7 @@
 // Data.
 #include "dstrings.h"
 #include "sounds.h"
+#include "net_client.h"
 
 //
 // Locally used constants, shortcuts.
@@ -364,7 +365,7 @@ void HU_Start(void)
     if (headsupactive)
 	HU_Stop();
 
-    plr = &players[consoleplayer];
+    plr = &players[drone ? displayplayer : consoleplayer];
     message_on = false;
     message_dontfuckwithme = false;
     message_nottobefuckedwith = false;
