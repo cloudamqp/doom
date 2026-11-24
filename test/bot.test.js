@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { locate } from "../bot/address.js";
-import { aimAt, pickTarget, pickWeapon } from "../bot/combat.js";
+import { aimAt, fought, pickTarget, pickWeapon } from "../bot/combat.js";
 import { AMMO, MF_COUNTKILL, MF_SHOOTABLE, MF_SPECIAL, WEAPON, trigger, unlocked } from "../bot/doomdata.js";
 import { closestOn } from "../bot/geometry.js";
 import { chooseGoal } from "../bot/goals.js";
@@ -169,6 +169,21 @@ test("those whose shots can't be dodged are shot first", () => {
   assert.equal(pickTarget({ x: 0, y: 0 }, [imp, zombie]), zombie);
   assert.equal(pickTarget({ x: 0, y: 0 }, [imp, monster(ZOMBIE, 500, 0)]), imp);
   assert.equal(pickTarget({ x: 0, y: 0 }, []), undefined);
+});
+
+test("an enemy is fought for as long as that hurts it", () => {
+  const marine = (health) => ({ id: 7, health });
+  let memory = fought(undefined, marine(100));
+  assert.deepEqual(memory, { id: 7, health: 100, unhurt: 0 });
+  memory = fought(fought(memory, marine(100)), marine(100));
+  assert.equal(memory.unhurt, 2);
+  assert.equal(fought(memory, marine(80)).unhurt, 0, "hurt");
+
+  // It finds a medikit: no reason to think it can't be hurt
+  memory = fought(fought(memory, marine(40)), marine(65));
+  assert.equal(memory.unhurt, 1);
+  assert.equal(fought(memory, marine(60)).unhurt, 0, "hurt again, though above where it was");
+  assert.equal(fought(memory, { id: 8, health: 100 }).unhurt, 0, "another enemy");
 });
 
 test("the best weapon with ammo is picked, rockets only from afar", () => {
