@@ -141,6 +141,8 @@ test("players join a game and play it over MQTT", async () => {
   const [hostPackets, guestPackets] = await Promise.all(received.map((count) => count()));
   assert.ok(hostPackets > 35, `host received ${hostPackets} packets`);
   assert.ok(guestPackets > 35, `guest received ${guestPackets} packets`);
+  // Reading how it works mid-game doesn't end the game
+  assert.equal(await guest.$eval(".bar a.nav", (a) => a.target), "_blank");
 
   const lobby = await player("Watcher");
   const row = await lobby.waitForSelector(listing(title));
@@ -368,7 +370,10 @@ test("the pages about DooMQ count what's on the broker", async () => {
   const context = await browser.createBrowserContext();
   contexts.push(context);
   const reader = await context.newPage();
-  for (const page of ["why-mqtt.html", "how.html"]) {
+  await reader.goto(`${WEB_URL}/index.html`);
+  await Promise.all([reader.waitForNavigation(), reader.click(".bar a.nav")]);
+  assert.equal(new URL(reader.url()).pathname, "/how.html");
+  for (const page of ["how.html", "why-mqtt.html"]) {
     await reader.goto(`${WEB_URL}/${page}`);
     await reader.waitForSelector("#now:not([hidden])");
     assert.match(await reader.$eval("#now", (p) => p.textContent), /^Right now: \d+ games? in progress, \d+ players/);

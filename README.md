@@ -40,8 +40,11 @@ The lobby and the games share `web/index.html`. A game opens in place, so the
 download of Doom (31 MB, mostly the Freedoom WAD) that starts with the lobby
 carries on, or is already done (`web/js/files.js`).
 
-`web/why-mqtt.html` explains why MQTT, how Doom maps onto it, and what DooMQ
-uses in MQTT and LavinMQ, with live counts from the lobby's retained messages.
+`web/how.html`, linked from the top of every page, follows one game from the
+lobby to the spectators with the MQTT messages each step sends.
+`web/why-mqtt.html` makes the longer case for MQTT: how Doom maps onto it, and
+what DooMQ uses in MQTT and LavinMQ. Both show live counts from the lobby's
+retained messages.
 
 Spectators watch games from above, one or all at once, with the scores
 (`?watch=<game>`, or `?watch=` for all). The host publishes where the players
