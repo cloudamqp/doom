@@ -776,6 +776,35 @@ pre.terminal span {
   color: var(--smoke);
 }
 
+/* A protocol log: what the client does, on which topic */
+pre.terminal b {
+  color: var(--bone);
+  font-weight: 600;
+}
+
+pre.terminal i {
+  color: var(--signal);
+  font-style: normal;
+}
+
+/* A game's life, step by step */
+.how {
+  counter-reset: step;
+}
+
+.how h2.step::before {
+  counter-increment: step;
+  content: counter(step);
+  display: inline-block;
+  min-width: 1em;
+  color: var(--fire);
+}
+
+/* Payloads plain, topics green */
+.how pre.terminal code {
+  color: var(--dust);
+}
+
 .features li {
   margin-bottom: 10px;
 }
