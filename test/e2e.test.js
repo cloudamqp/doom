@@ -400,7 +400,14 @@ test("spectators watch in Doom, all from one copy of the game", async () => {
   await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/8 players"));
   await launch(host);
   await Promise.all([guest, ann, ben].map((page) => waitForLine(page, "doom: 10,")));
-  assert.equal(await ann.$eval("#hint", (p) => p.textContent), "You're spectating.");
+  // Space or a click switches player, from the host's marine on
+  const watching = (name) => ann.waitForFunction((name) => document.querySelector("#hint").textContent === `Watching ${name}.`, {}, name);
+  await watching("Hanna");
+  await ann.focus("#canvas");
+  await ann.keyboard.press("Space");
+  await watching("Ozzy");
+  await ann.click("#canvas");
+  await watching("Hanna");
   await sleep(1_000);
 
   // The host sends the game to where all spectators listen, peer 0, once,

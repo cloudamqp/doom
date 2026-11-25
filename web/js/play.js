@@ -267,6 +267,8 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
     ],
     canvas: $("#canvas"),
     onWatch: role.onWatch,
+    // Whom a spectator watches, see G_Watching in doom/src/doom/g_game.c
+    onWatching: spectating ? (name) => ($("#hint").textContent = `Watching ${name}.`) : undefined,
     // Compiled by files.js while the page waited
     instantiateWasm(imports, receive) {
       WebAssembly.instantiate(wasm, imports).then((instance) => receive(instance, wasm));

@@ -36,8 +36,9 @@
   the server sends each tic there once, and the broker copies it to every
   spectator. The server doesn't wait for drones, so they don't acknowledge
   tics, and `-nodes` counts players only. Drones can switch players with F12
-  in deathmatch too, and get the status bar, messages and sounds of the
-  player they watch.
+  in deathmatch too, and with the fire key and button, and get the status
+  bar, messages and sounds of the player they watch, whose name they're
+  told (`Module.onWatching`).
 - Deathmatch takes 8 players, co-op stays at 4 (`MAXPLAYERS`,
   `VANILLA_MAXPLAYERS`): the host's game mode sets the server's limit.
   Players 5 to 8 are blue, yellow, white and orange (`R_PlayerTranslation`,

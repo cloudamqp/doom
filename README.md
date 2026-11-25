@@ -83,8 +83,8 @@ by `doom/src/doom/d_watch.c`, and the page draws the maps from the WAD the
 way Doom's automap does (`web/js/watch.js`, `web/js/wad.js`).
 
 Spectators can also watch in Doom itself: Spectate, in the lobby before the
-game starts, joins as one of Doom's drones (`-drone`), and F12 switches
-between players, in deathmatch too. They all get the game on one topic,
+game starts, joins as one of Doom's drones (`-drone`), and Space, a click or
+F12 switches between players, in deathmatch too. They all get the game on one topic,
 `doomq/games/<game>/0/1`: the host's Doom server publishes each tic there once
 and the broker copies it to every spectator. The server doesn't wait for
 spectators, so a slow one only falls behind itself. A host can turn

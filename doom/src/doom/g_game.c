@@ -83,6 +83,7 @@ void G_PlayerReborn(int player);
 void G_DoReborn(int playernum);
 
 void G_DoLoadLevel(void);
+static void G_Watching(void);
 void G_DoNewGame(void);
 void G_DoPlayDemo(void);
 void G_DoCompleted(void);
@@ -585,6 +586,7 @@ void G_DoLoadLevel(void)
 
     P_SetupLevel(gameepisode, gamemap, 0, gameskill);
     displayplayer = consoleplayer; // view the guy you are playing
+    if (drone) G_Watching();
     gameaction = ga_nothing;
     Z_CheckHeap();
 
@@ -648,6 +650,32 @@ static void SetMouseButtons(unsigned int buttons_mask)
     }
 }
 
+// A spectator (drone) is told whom it watches, in the game and on the page
+EM_JS_DEPS(g_game, "$UTF8ToString");
+EM_JS(void, JS_Watching, (const char *name), { Module.onWatching?.(UTF8ToString(name)); });
+
+static void G_Watching(void)
+{
+    static char message[MAXPLAYERNAME + 16];
+    char name[MAXPLAYERNAME + 8];
+
+    M_StringCopy(name, net_client_wait_data.player_names[displayplayer], sizeof(name));
+    if (name[0] == '\0') M_snprintf(name, sizeof(name), "Player %d", displayplayer + 1);
+
+    M_snprintf(message, sizeof(message), "Watching %s", name);
+    players[displayplayer].message = message;
+    JS_Watching(name);
+}
+
+// Spectators switch players with the fire key and button too: F12 is
+// awkward to reach on some keyboards
+static boolean G_SpectatorNext(const event_t *ev)
+{
+    if (!drone) return false;
+    if (ev->type == ev_keydown) return ev->data1 == key_fire;
+    return ev->type == ev_mouse && (ev->data1 & (1 << mousebfire)) && !mousebuttons[mousebfire];
+}
+
 //
 // G_Responder
 // Get info needed to make ticcmd_ts for the players.
@@ -656,7 +684,8 @@ boolean G_Responder(event_t *ev)
 {
     // allow spy mode changes even during the demo, and for spectators
     // (drones) in deathmatch too
-    if (gamestate == GS_LEVEL && ev->type == ev_keydown && ev->data1 == key_spy && (singledemo || !deathmatch || drone)) {
+    if (gamestate == GS_LEVEL &&
+        ((ev->type == ev_keydown && ev->data1 == key_spy && (singledemo || !deathmatch || drone)) || G_SpectatorNext(ev))) {
         // spy mode
         do {
             displayplayer++;
@@ -666,8 +695,10 @@ boolean G_Responder(event_t *ev)
         if (drone) {
             ST_Start();
             HU_Start();
+            G_Watching();
         }
-        return true;
+        // Mouse events go on below, which keeps track of the buttons
+        if (ev->type != ev_mouse) return true;
     }
 
     // any other key pops up menu if in demos
