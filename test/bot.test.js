@@ -256,7 +256,8 @@ test("the world is read from Doom's records", () => {
 test("a page's address tells the broker and the game", async (t) => {
   const pages = {
     "https://doom.example/play/js/config.js": 'export default {\n  broker: "wss://user:secret@broker.example/mqtt",\n};',
-    "http://localhost:8080/js/config.js": "export default {\n  broker: `ws://guest:guest@${location.hostname}:15672/mqtt`,\n};",
+    "http://localhost:8080/js/config.js":
+      "export default {\n  broker: `ws://guest:guest@${location.hostname}:15672/mqtt`,\n  brokerFromAddress: true,\n};",
   };
   t.mock.method(globalThis, "fetch", async (url) => new Response(pages[url], { status: pages[url] ? 200 : 404 }));
 
@@ -266,7 +267,12 @@ test("a page's address tells the broker and the game", async (t) => {
     game: "0123456789ab",
   });
   assert.deepEqual(await locate("http://localhost:8080/"), { broker: "ws://guest:guest@localhost:15672/mqtt", game: undefined });
+  // Another broker only where the page's config lets the address name one
   assert.deepEqual(await locate("http://localhost:8080/?broker=ws://other/mqtt"), { broker: "ws://other/mqtt", game: undefined });
+  assert.deepEqual(await locate("https://doom.example/play/?broker=ws://other/mqtt"), {
+    broker: "wss://user:secret@broker.example/mqtt",
+    game: undefined,
+  });
   assert.deepEqual(await locate("0123456789ab"), { game: "0123456789ab" });
   assert.deepEqual(await locate(undefined), { game: undefined });
   await assert.rejects(locate("https://elsewhere.example/"), /No DooMQ at https:\/\/elsewhere.example\/: .* gave 404/);

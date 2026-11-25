@@ -8,13 +8,15 @@ export * from "./protocol.js";
 
 const params = new URLSearchParams(location.search);
 
-// ?broker=wss://user:pass@host/mqtt overrides config.js, and sticks to links
-export const brokerUrl = params.get("broker") ?? config.broker;
+// ?broker=wss://user:pass@host/mqtt overrides config.js where that allows
+// it, and sticks to links
+const brokerFromAddress = config.brokerFromAddress ? params.get("broker") : null;
+export const brokerUrl = brokerFromAddress ?? config.broker;
 
 export function link(path, query = {}) {
   const url = new URL(path, location.href);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-  if (params.has("broker")) url.searchParams.set("broker", brokerUrl);
+  if (brokerFromAddress !== null) url.searchParams.set("broker", brokerFromAddress);
   return url.href;
 }
 
