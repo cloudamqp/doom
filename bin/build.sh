@@ -46,12 +46,15 @@ fi
 
 mkdir -p web
 
-if [ ! -f web/freedoom1.wad ]; then
+# Freedoom's license asks that its notice comes with every copy, so it is
+# served next to the IWAD
+if [ ! -f web/freedoom1.wad ] || [ ! -f web/freedoom-COPYING.txt ]; then
   zip=$(mktemp)
   trap 'rm -f "$zip"' EXIT
   curl -fsSL -o "$zip" "https://github.com/freedoom/freedoom/releases/download/v$FREEDOOM_VERSION/freedoom-$FREEDOOM_VERSION.zip"
   echo "$FREEDOOM_SHA256  $zip" | sha256sum -c --quiet
   unzip -qjo "$zip" "*/freedoom1.wad" -d web
+  unzip -qp "$zip" "*/COPYING.txt" > web/freedoom-COPYING.txt
 fi
 
 make -C doom -j"$(nproc)"

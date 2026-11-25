@@ -4,3 +4,4 @@ doom/build
 web/doom.js
 web/doom.wasm
 web/freedoom1.wad*
+web/freedoom-COPYING.txt
