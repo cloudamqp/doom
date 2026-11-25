@@ -201,6 +201,11 @@ credentials can fill the disk with retained messages on topics like
 - `[main] free_disk_min` sets how much free disk LavinMQ keeps, it refuses
   publishes below that. Without it, the floor is three segments (24 MB).
 
+They can also publish listings and saves for games that don't exist. The
+pages keep track of 100 games and 100 saves, and show 24 games to spectators
+at once, so a flood of them doesn't grow a player's tab without end. It still
+hides the real games until the next run.
+
 ## Limitations
 
 - Hidden tabs keep playing: browsers stop animation frames there and throttle

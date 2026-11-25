@@ -2,7 +2,7 @@
 // listings on doomq/lobby/+, as the lobby reads them.
 
 import { MqttClient } from "./mqtt.js";
-import { brokerUrl, link, parseListing, setStatus, topics } from "./doomq.js";
+import { MAX_GAMES, brokerUrl, link, parseListing, setStatus, topics } from "./doomq.js";
 
 // Every player sends the host a packet a tic, and the host sends one back
 const PACKETS_PER_GUEST = 2 * 35;
@@ -33,7 +33,7 @@ try {
   mqtt.onmessage = (topic, payload) => {
     const game = parseListing(payload);
     const id = topic.split("/")[2];
-    if (game) games.set(id, game);
+    if (game && (games.has(id) || games.size < MAX_GAMES)) games.set(id, game);
     else games.delete(id);
     render();
   };

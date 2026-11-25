@@ -1,10 +1,12 @@
 import { MqttClient } from "./mqtt.js";
 import {
   MAPS,
+  MAX_GAMES,
   MODES,
   SKILLS,
   brokerUrl,
   deleteSave,
+  isGameId,
   link,
   newGameId,
   parseListing,
@@ -31,6 +33,10 @@ const fire = burn($(".hero .fire"));
 let mqtt;
 let pruning;
 let leaving = false; // a game opened in this page
+
+function keep(known, id, value) {
+  if (known.has(id) || known.size < MAX_GAMES) known.set(id, value);
+}
 
 function element(tag, text, attrs = {}) {
   const el = Object.assign(document.createElement(tag), attrs);
@@ -197,13 +203,14 @@ async function listen() {
   mqtt.onmessage = (topic, payload) => {
     fire.flare(); // fed by the broker
     const [, kind, id] = topic.split("/");
+    if (!isGameId(id)) return;
     if (kind === "lobby") {
       const game = parseListing(payload);
-      if (game) games.set(id, { game, seen: performance.now() });
+      if (game) keep(games, id, { game, seen: performance.now() });
       else games.delete(id);
     } else {
       const save = parseSave(payload);
-      if (save && !expire(id, save)) saves.set(id, save);
+      if (save && !expire(id, save)) keep(saves, id, save);
       else saves.delete(id);
     }
     render();

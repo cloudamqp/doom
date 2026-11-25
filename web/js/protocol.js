@@ -35,6 +35,10 @@ export const MODES = { coop: "Co-op", deathmatch: "Deathmatch", altdeath: "Death
 export const SKILLS = ["I'm too young to die", "Hey, not too rough", "Hurt me plenty", "Ultra-Violence", "Nightmare!"];
 export const MAPS = [1, 2, 3, 4].flatMap((e) => Array.from({ length: 9 }, (_, m) => `E${e}M${m + 1}`));
 
+// Anyone can publish listings and saves, also for games that don't exist:
+// pages keep track of this many, and leave the rest
+export const MAX_GAMES = 100;
+
 export const newGameId = () => randomHex(6);
 export const isGameId = (id) => /^[0-9a-f]{12}$/.test(id ?? "");
 

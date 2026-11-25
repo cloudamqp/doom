@@ -559,6 +559,30 @@ test("a save can't point Doom outside the game", async () => {
   assert.equal(await resumeDamaged((data) => (data[56] = 99)), "Bad savegame: player state 99");
 });
 
+// Anyone can publish listings, also for games that don't exist
+test("a flood of listings doesn't grow the pages without end", async () => {
+  const fake = { title: "Flood", host: "Nobody", mode: "coop", skill: 3, map: "E1M1", monsters: true, players: 1, maxPlayers: 4, state: "playing" };
+  const ids = Array.from({ length: 150 }, (_, i) => i.toString(16).padStart(12, "f"));
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const publish = (payload) => ids.forEach((id) => mqtt.publish(`doomq/lobby/${id}`, payload, { retain: true }));
+  publish(JSON.stringify(fake));
+
+  try {
+    const lobby = await player("Lou");
+    await lobby.waitForFunction(() => document.querySelectorAll("#games tbody tr").length >= 100);
+    await sleep(500);
+    assert.equal(await lobby.$$eval("#games tbody tr", (rows) => rows.length), 100);
+
+    await Promise.all([lobby.waitForNavigation(), lobby.click("#watch-all")]);
+    await lobby.waitForFunction(() => document.querySelectorAll(".match").length >= 24);
+    await sleep(500);
+    assert.equal(await lobby.$$eval(".match", (matches) => matches.length), 24);
+  } finally {
+    publish("");
+    mqtt.close();
+  }
+});
+
 test("a game carries on with the download the lobby started", async () => {
   const host = await player("Quick");
   const files = [];
