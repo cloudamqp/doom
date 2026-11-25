@@ -138,6 +138,24 @@ test("without retry a lost connection is over", async () => {
   assert.ok(!client.connected);
 });
 
+test("a connection closed while it is lost stays closed", async () => {
+  const client = await MqttClient.connect(BROKER_URL, { retry: 5_000 });
+  const events = [];
+  const closed = new Promise((resolve) => (client.onclose = resolve));
+  // As the lobby does when a game opens while the broker is away
+  client.ondrop = () => client.close();
+  client.onreconnect = () => events.push("reconnect");
+  client.onmessage = () => events.push("message");
+  await client.subscribe("doomq/test/#");
+
+  await cutConnections();
+  await closed;
+  // Long enough to connect again: that takes a few milliseconds
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  assert.ok(!client.connected);
+  assert.deepEqual(events, []);
+});
+
 test("broker refuses bad credentials", async () => {
   const url = new URL(BROKER_URL);
   url.password = "wrong";

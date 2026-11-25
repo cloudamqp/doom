@@ -236,7 +236,8 @@ export class MqttClient {
     this.#recovering = true;
     const deadline = Date.now() + (this.#closed ? 0 : this.#retry);
     if (Date.now() < deadline) this.ondrop();
-    while (Date.now() < deadline) {
+    // Until the time is up, or close() says there is no need
+    while (!this.#closed && Date.now() < deadline) {
       try {
         await this.#open();
         await Promise.all(Array.from(this.#filters, (filter) => this.subscribe(filter)));
