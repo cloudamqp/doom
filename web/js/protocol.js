@@ -117,6 +117,14 @@ export function readSaveHeader(data) {
   return { skill: data[40] + 1, map: `E${data[41]}M${data[42]}`, players: data.slice(43, 47).filter(Boolean).length };
 }
 
+// Whether a savegame is the one a listing or a save's summary describes,
+// with that many players. Doom starts a resumed game with the players the
+// lobby counted, and takes their marines from the save.
+export function saveMatches(data, { skill, map }, players) {
+  const header = readSaveHeader(data);
+  return header?.skill === skill && header.map === map && header.players === players;
+}
+
 export function deleteSave(mqtt, game) {
   mqtt.publish(topics.save(game), "", { retain: true });
   mqtt.publish(topics.saveData(game), "", { retain: true });

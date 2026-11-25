@@ -87,6 +87,8 @@ LAME.
   door is in, which state a monster is in. It checks those as it reads them
   (`doom/src/doom/p_saveg.c`), and refuses a save that points outside the
   game.
+- A save has to be for the map, skill and number of players that the lobby
+  showed for it, or it isn't loaded.
 
 ## Bots
 
