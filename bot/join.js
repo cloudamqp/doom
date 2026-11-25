@@ -3,7 +3,7 @@
 
 import { MqttClient } from "../web/js/mqtt.js";
 import { gunzip } from "../web/js/gzip.js";
-import { SERVER_ID, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
+import { SERVER_ID, isGameId, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
@@ -27,7 +27,7 @@ async function find(broker, wanted) {
     saves.get(topic)?.(payload);
     if (!topic.startsWith(LOBBY)) return;
     const [id, game] = [topic.slice(LOBBY.length), parseListing(payload)];
-    if (joinable(game) && (!wanted || id === wanted)) found.resolve({ id, ...game });
+    if (isGameId(id) && joinable(game) && (!wanted || id === wanted)) found.resolve({ id, ...game });
   };
   await mqtt.subscribe(topics.lobby);
   const game = await found.promise;

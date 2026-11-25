@@ -1,7 +1,7 @@
 // Doom's network for a peer of a game: its packets travel as MQTT messages,
 // one per packet, on doomq/games/<game>/<to>/<from>. See web/js/protocol.js.
 
-import { topics } from "../web/js/protocol.js";
+import { isPeerId, topics } from "../web/js/protocol.js";
 
 export function network(mqtt, game, self) {
   const inbox = [];
@@ -11,6 +11,7 @@ export function network(mqtt, game, self) {
     deliver(topic, data) {
       if (!topic.startsWith(mine)) return undefined;
       const from = Number(topic.slice(mine.length));
+      if (!isPeerId(from)) return undefined;
       inbox.push({ from, data });
       return from;
     },
