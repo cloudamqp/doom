@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- The picture that links to DooMQ show in Slack and the like, preview.png:
+     the lobby's wordmark in its fire, 1200 by 630. bin/preview.js takes it. -->
+<meta charset="utf-8" />
+<title>DooMQ's link preview</title>
+<style>
+  @font-face { font-family: "Jersey 10"; src: url("../fonts/jersey-10.woff2") format("woff2"); }
+  @font-face { font-family: "Familjen Grotesk"; src: url("../fonts/familjen-grotesk.woff2") format("woff2"); font-weight: 400 700; }
+  html, body { margin: 0; background: #141414; }
+  .card { position: relative; isolation: isolate; overflow: hidden; width: 1200px; height: 630px; background: #141414; color: #f7f5f2; font: 30px/1.3 "Familjen Grotesk", sans-serif; }
+  .topo { position: absolute; inset: 0; z-index: -2; background: linear-gradient(rgb(247 245 242 / 0.14), rgb(247 245 242 / 0.07) 25%, #b3290b 62%, #ff8a2a); mask: url("topo.png") center top / 1440px auto repeat; }
+  .fire { position: absolute; inset: auto 0 0; z-index: -1; width: 100%; height: 118%; image-rendering: pixelated; }
+  h1 { position: absolute; inset: auto 0 0.07em; margin: 0; text-align: center; font: 470px/0.8 "Jersey 10", monospace; background: linear-gradient(to bottom, #f7f5f2 45%, #ffd9a0 70%, #ffa24d); background-clip: text; -webkit-background-clip: text; color: transparent; filter: drop-shadow(0.03em 0.03em 0 rgb(20 20 20 / 0.8)); }
+  .top { position: absolute; inset: 44px 56px auto; display: flex; justify-content: space-between; align-items: center; }
+  .lead { margin: 0; font-weight: 600; font-size: 38px; letter-spacing: -0.01em; }
+  .lead span { color: #ffa24d; }
+  .by { display: flex; align-items: center; gap: 14px; color: #d9d6ce; font-size: 28px; }
+  .by img { width: 44px; height: 44px; }
+</style>
+<div class="card">
+  <div class="topo"></div>
+  <div class="top">
+    <p class="lead">Multiplayer Doom, <span>every move an MQTT message</span></p>
+    <div class="by"><img src="lavinmq.svg" alt="" />LavinMQ</div>
+  </div>
+  <h1>DooMQ</h1>
+  <canvas class="fire"></canvas>
+</div>
+<script type="module">
+  import { burn } from "../js/fire.js";
+  await document.fonts.ready;
+  burn(document.querySelector(".fire"), { rows: 150 });
+  document.body.dataset.ready = "1";
+</script>
