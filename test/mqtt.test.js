@@ -10,6 +10,8 @@ import {
   subscribePacket,
 } from "../web/js/mqtt.js";
 
+import { cutConnections } from "./broker.js";
+
 const BROKER_URL = process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt";
 
 const text = (bytes) => new TextDecoder().decode(bytes);
@@ -99,6 +101,41 @@ test("broker keeps retained messages and publishes last wills", async () => {
     { topic: `${topic}/retained`, payload: "kept", retain: true },
     { topic: `${topic}/will`, payload: "gone", retain: false },
   ]);
+});
+
+test("a lost connection comes back, subscribed as before", async () => {
+  const topic = `doomq/test/${Date.now()}`;
+  const client = await MqttClient.connect(BROKER_URL, { retry: 5_000, will: { topic: `${topic}/will`, payload: "gone" } });
+  const events = [];
+  const back = new Promise((resolve) => (client.onreconnect = resolve));
+  client.ondrop = () => events.push("drop");
+  client.onclose = () => events.push("close");
+  client.onmessage = (topic, payload) => events.push(`${topic.split("/").pop()}: ${text(payload)}`);
+  await client.subscribe(`${topic}/#`);
+
+  await cutConnections();
+  await back;
+  assert.ok(client.connected);
+  client.publish(`${topic}/news`, "still here");
+  while (!events.includes("news: still here")) await new Promise((resolve) => setTimeout(resolve, 20));
+  // Its own will, which the broker published as the connection went
+  assert.deepEqual(
+    events.filter((event) => event !== "will: gone"),
+    ["drop", "news: still here"],
+  );
+
+  client.close();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(events.at(-1), "close");
+});
+
+test("without retry a lost connection is over", async () => {
+  const client = await MqttClient.connect(BROKER_URL);
+  const closed = new Promise((resolve) => (client.onclose = resolve));
+  client.ondrop = () => assert.fail("nothing to wait for");
+  await cutConnections();
+  await closed;
+  assert.ok(!client.connected);
 });
 
 test("broker refuses bad credentials", async () => {
