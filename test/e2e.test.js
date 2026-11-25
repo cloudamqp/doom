@@ -520,13 +520,14 @@ test("a saved game can be resumed", async () => {
   assert.ok(!resumable.includes(savedId), "the old save is still there");
 });
 
-test("Doom's errors reach the player", async () => {
+// Hosts a game, changes its save on the broker, and resumes it. Returns
+// what the player is told.
+async function resumeDamaged(damage) {
   const [host, lobby] = await Promise.all([player("Breaker"), player("Lou")]);
   const title = `Broken ${Date.now().toString(36)}`;
   await createGame(host, title, "coop");
   await launch(host);
 
-  // Damage the save's end of file marker, its last byte
   const game = new URL(host.url()).searchParams.get("game");
   const mqtt = await MqttClient.connect(BROKER_URL);
   const stored = new Promise((resolve) => (mqtt.onmessage = (topic, payload) => resolve(payload)));
@@ -534,7 +535,7 @@ test("Doom's errors reach the player", async () => {
   await autosave(host);
   const data = gunzipSync(await stored);
   await host.close(); // no more saves to overwrite this one
-  data[data.length - 1] ^= 0xff;
+  damage(data);
   mqtt.publish(`doomq/savedata/${game}`, gzipSync(data), { retain: true });
   mqtt.close();
 
@@ -542,7 +543,20 @@ test("Doom's errors reach the player", async () => {
   const save = await lobby.waitForSelector(savedGame(title));
   await Promise.all([lobby.waitForNavigation(), save.$eval("a", (a) => a.click())]);
   await lobby.waitForSelector("#overlay:not([hidden])", { timeout: 30_000 });
-  assert.equal(await lobby.$eval("#message", (p) => p.textContent), "Bad savegame");
+  return lobby.$eval("#message", (p) => p.textContent);
+}
+
+test("Doom's errors reach the player", async () => {
+  // The save's end of file marker, its last byte
+  assert.equal(await resumeDamaged((data) => (data[data.length - 1] ^= 0xff)), "Bad savegame");
+});
+
+// Anyone can publish a save. Doom uses much of one as indexes into its own
+// tables, and checks them as it reads them.
+test("a save can't point Doom outside the game", async () => {
+  // After the 50 byte header, padded to 52: the first player's marine, then
+  // the player's state, one of three
+  assert.equal(await resumeDamaged((data) => (data[56] = 99)), "Bad savegame: player state 99");
 });
 
 test("a game carries on with the download the lobby started", async () => {
