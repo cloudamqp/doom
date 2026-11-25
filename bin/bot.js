@@ -4,7 +4,7 @@
 //
 //   bin/bot.js [options] [address or game]
 //
-// See README.md.
+// See README.md. The bot is under the GPL, version 2, see bot/LICENSE.
 
 import { parseArgs } from "node:util";
 import { locate } from "../bot/address.js";

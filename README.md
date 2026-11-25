@@ -261,8 +261,20 @@ hides the real games until the next run.
 
 ## License
 
-`doom/` is GPL-2.0, see `doom/COPYING.md`. The game data is [Freedoom][3]
-(BSD), downloaded at build time.
+DooMQ is MIT licensed, see `LICENSE`, except for two parts under the GNU
+General Public License, version 2:
+
+- `doom/` is Doom itself: [Chocolate Doom][1] by way of [doom-wasm][2], with
+  DooMQ's changes. See `doom/COPYING.md`.
+- The bot, `bot/` and `bin/bot.js`, which plays by what it knows of Doom's
+  insides. See `bot/LICENSE`.
+
+The game as built into `web/` has Doom in it, `doom.js` and `doom.wasm`, and
+so goes out under the GPL as a whole.
+
+The game data is [Freedoom][3] (BSD), downloaded at build time. Its license
+is served with it, as `web/freedoom-COPYING.txt`. The fonts in `web/fonts/`
+come with theirs (OFL).
 
 [1]: https://www.chocolate-doom.org
 [2]: https://github.com/cloudflare/doom-wasm
