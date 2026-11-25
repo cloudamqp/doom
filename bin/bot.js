@@ -13,7 +13,7 @@ import { TICRATE } from "../bot/doomdata.js";
 import { startDoom } from "../bot/doom.js";
 import { host } from "../bot/host.js";
 import { join } from "../bot/join.js";
-import { MAPS, MAX_PLAYERS, MODES, SKILLS } from "../web/js/protocol.js";
+import { MAPS, MODES, SKILLS, maxPlayersFor } from "../web/js/protocol.js";
 
 const USAGE = `Usage: bin/bot.js [options] [address or game]
 
@@ -27,8 +27,8 @@ alone is looked for on the broker below.
   --name <name>    the bot's name in the game, default Bot
   --host           start a game instead, on the page's broker, and play it.
                    It shows in the lobby and starts once enough have joined.
-  --players <1-4>  with --host, how many it starts with, the bot included.
-                   Default 2
+  --players <1-8>  with --host, how many it starts with, the bot included,
+                   4 at most in co-op. Default 2
   --mode <mode>    with --host: coop (default), deathmatch or altdeath
   --map <map>      with --host, E1M1 (default) to E4M9
   --title <title>  with --host, default "<name>'s game"
@@ -92,8 +92,9 @@ async function solo(map) {
 // What --host asks for, as the lobby's form would
 function hosting() {
   const [players, skill] = [Number(options.players), Number(options.skill)];
-  if (!(players >= 1 && players <= MAX_PLAYERS)) throw new Error(`A game has 1 to ${MAX_PLAYERS} players, not ${options.players}`);
   if (!(options.mode in MODES)) throw new Error(`No such mode: ${options.mode}. There is ${Object.keys(MODES).join(", ")}`);
+  const most = maxPlayersFor(options.mode);
+  if (!(players >= 1 && players <= most)) throw new Error(`A ${MODES[options.mode]} game has 1 to ${most} players, not ${options.players}`);
   if (!MAPS.includes(options.map)) throw new Error(`No such map: ${options.map}`);
   if (!SKILLS[skill - 1]) throw new Error(`No such skill: ${options.skill}`);
   const title = (options.title ?? `${options.name}'s game`).slice(0, 40);

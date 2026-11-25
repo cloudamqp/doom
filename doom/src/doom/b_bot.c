@@ -192,7 +192,7 @@ EMSCRIPTEN_KEEPALIVE int *B_Things(void)
         *out++ = mo->height;
         *out++ = mo->health;
         *out++ = mo->flags;
-        // 1 to 4 for the players' marines
+        // 1 to MAXPLAYERS for the players' marines
         *out++ = mo->player ? mo->player - players + 1 : 0;
         *out++ = mo->subsector->sector - sectors;
         // In the bot's sight, only told for what can be shot

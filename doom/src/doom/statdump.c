@@ -42,9 +42,9 @@ static const int doom2_par_times[] =
 };
 
 /* Player colors. */
-static const char *player_colors[] =
+static const char *player_colors[MAXPLAYERS] =
 {
-    "Green", "Indigo", "Brown", "Red"
+    "Green", "Indigo", "Brown", "Red", "Blue", "Yellow", "White", "Orange"
 };
 
 // Array of end-of-level statistics that have been captured.

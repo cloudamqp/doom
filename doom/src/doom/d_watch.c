@@ -17,13 +17,13 @@
 #define FIELDS 9          // per player, as read below
 
 EM_JS_DEPS(d_watch, "$UTF8ToString");
-EM_JS(void, JS_Watch, (const int *numbers, const char *names, int name_size, const int *monsters, int monster_count), {
+EM_JS(void, JS_Watch, (const int *numbers, int player_count, int fields, const char *names, int name_size, const int *monsters, int monster_count), {
     if (!Module.onWatch) return;
     const number = (i) => HEAP32[(numbers >> 2) + i];
     const players = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < player_count; i++) {
         const [ingame, x, y, angle, health, armor, frags, kills, dead] =
-            Array.from({ length: 9 }, (_, field) => number(5 + i * 9 + field));
+            Array.from({ length: fields }, (_, field) => number(5 + i * fields + field));
         if (!ingame) continue;
         const name = UTF8ToString(names + i * name_size) || `Player ${i + 1}`;
         players.push({ number: i, name, x, y, angle, health, armor, frags, kills, dead: dead === 1 });
@@ -99,5 +99,5 @@ void D_Watch(void)
     }
 
     int count = with_monsters ? Monsters(monsters) : 0;
-    JS_Watch(numbers, net_client_wait_data.player_names[0], MAXPLAYERNAME, with_monsters ? monsters : NULL, count);
+    JS_Watch(numbers, MAXPLAYERS, FIELDS, net_client_wait_data.player_names[0], MAXPLAYERNAME, with_monsters ? monsters : NULL, count);
 }

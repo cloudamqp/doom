@@ -138,6 +138,8 @@ void V_SetPatchClipCallback(vpatchclipfunc_t func)
 // Masks a column based masked pic to the screen. 
 //
 
+byte *dp_translation = NULL;
+
 void V_DrawPatch(int x, int y, patch_t *patch)
 { 
     int count;
@@ -188,7 +190,8 @@ void V_DrawPatch(int x, int y, patch_t *patch)
 
             while (count--)
             {
-                *dest = *source++;
+                *dest = dp_translation ? dp_translation[*source] : *source;
+                source++;
                 dest += SCREENWIDTH;
             }
             column = (column_t *)((byte *)column + column->length + 4);

@@ -18,6 +18,7 @@
 
 
 #include <stdio.h>
+#include <string.h>
 
 #include "z_zone.h"
 
@@ -44,6 +45,9 @@
 #include "v_video.h"
 
 #include "wi_stuff.h"
+#include "hu_stuff.h"
+
+extern patch_t *hu_font[HU_FONTSIZE];
 
 //
 // Data needed to add patches to full screen intermission pics.
@@ -382,11 +386,11 @@ static patch_t*		total;
 static patch_t*		star;
 static patch_t*		bstar;
 
-// "red P[1..MAXPLAYERS]"
-static patch_t*		p[MAXPLAYERS];
+// "red P[1..4]", drawn with WI_drawPlayerPatch
+static patch_t*		p[VANILLA_MAXPLAYERS];
 
-// "gray P[1..MAXPLAYERS]"
-static patch_t*		bp[MAXPLAYERS];
+// "gray P[1..4]"
+static patch_t*		bp[VANILLA_MAXPLAYERS];
 
  // Name graphics of each level (centered)
 static patch_t**	lnames;
@@ -999,14 +1003,80 @@ void WI_updateDeathmatchStats(void)
 
 
 
+// Players past the vanilla four get the first one's patch, recolored
+static void WI_drawPlayerPatch(int x, int y, patch_t **patches, int player)
+{
+    if (player < VANILLA_MAXPLAYERS)
+    {
+	V_DrawPatch(x, y, patches[player]);
+    }
+    else
+    {
+	dp_translation = R_PlayerTranslation(player);
+	V_DrawPatch(x, y, patches[0]);
+	dp_translation = NULL;
+    }
+}
+
+// Right-aligned at x, in the small font
+static void WI_drawSmallNum(int x, int y, int n)
+{
+    char buf[12];
+    int i;
+
+    M_snprintf(buf, sizeof(buf), "%d", n);
+
+    for (i = strlen(buf) - 1; i >= 0; i--)
+    {
+	patch_t *c = hu_font[buf[i] - HU_FONTSTART];
+
+	x -= SHORT(c->width);
+	V_DrawPatch(x, y, c);
+    }
+}
+
+// Up to four players get vanilla's table, more a smaller one: smaller
+// player boxes, the small font, and a frame round your own boxes. Rows
+// and columns go to the players in the game only, without gaps.
+
+#define DM8_ROWSX	32	// centre of the row boxes
+#define DM8_COLUMNSX	72	// centre of the first column, clear of "victims"
+#define DM8_MATRIXY	58
+#define DM8_HEADERY	40
+#define DM8_SPACINGX	22	// the last column ends before "total"
+#define DM8_SPACINGY	17
+#define DM8_BOXW	19
+#define DM8_BOXH	15
+
+// Like the STPB patches: the first player's green fill and border, in the
+// player's color
+static void WI_drawSmallPlayerBox(int x, int y, int player)
+{
+    byte *translation = R_PlayerTranslation(player);
+
+    V_DrawFilledBox(x, y, DM8_BOXW, DM8_BOXH, translation ? translation[0x7d] : 0x7d);
+    V_DrawBox(x, y, DM8_BOXW, DM8_BOXH, translation ? translation[0x7e] : 0x7e);
+
+    if (player == me)
+	V_DrawBox(x-1, y-1, DM8_BOXW+2, DM8_BOXH+2, 4);
+}
+
 void WI_drawDeathmatchStats(void)
 {
-
+    int		ingame[MAXPLAYERS];
+    int		n = 0;
     int		i;
     int		j;
     int		x;
     int		y;
     int		w;
+    boolean	small;
+
+    for (i=0 ; i<MAXPLAYERS ; i++)
+	if (playeringame[i])
+	    ingame[n++] = i;
+
+    small = n > VANILLA_MAXPLAYERS;
 
     WI_slamBackground();
     
@@ -1023,63 +1093,52 @@ void WI_drawDeathmatchStats(void)
     V_DrawPatch(DM_VICTIMSX, DM_VICTIMSY, victims);
 
     // draw P?
-    x = DM_MATRIXX + DM_SPACINGX;
-    y = DM_MATRIXY;
-
-    for (i=0 ; i<MAXPLAYERS ; i++)
+    for (i=0 ; i<n ; i++)
     {
-	if (playeringame[i])
+	if (small)
 	{
-	    V_DrawPatch(x-SHORT(p[i]->width)/2,
-			DM_MATRIXY - WI_SPACINGY,
-			p[i]);
-	    
-	    V_DrawPatch(DM_MATRIXX-SHORT(p[i]->width)/2,
-			y,
-			p[i]);
-
-	    if (i == me)
-	    {
-		V_DrawPatch(x-SHORT(p[i]->width)/2,
-			    DM_MATRIXY - WI_SPACINGY,
-			    bstar);
-
-		V_DrawPatch(DM_MATRIXX-SHORT(p[i]->width)/2,
-			    y,
-			    star);
-	    }
+	    WI_drawSmallPlayerBox(DM8_COLUMNSX + i*DM8_SPACINGX - DM8_BOXW/2, DM8_HEADERY, ingame[i]);
+	    WI_drawSmallPlayerBox(DM8_ROWSX - DM8_BOXW/2, DM8_MATRIXY + i*DM8_SPACINGY, ingame[i]);
+	    continue;
 	}
-	else
+
+	w = SHORT(p[0]->width);
+	x = DM_MATRIXX + (i+1)*DM_SPACINGX;
+	y = DM_MATRIXY + i*WI_SPACINGY;
+
+	WI_drawPlayerPatch(x-w/2, DM_MATRIXY - WI_SPACINGY, p, ingame[i]);
+	WI_drawPlayerPatch(DM_MATRIXX-w/2, y, p, ingame[i]);
+
+	if (ingame[i] == me)
 	{
-	    // V_DrawPatch(x-SHORT(bp[i]->width)/2,
-	    //   DM_MATRIXY - WI_SPACINGY, bp[i]);
-	    // V_DrawPatch(DM_MATRIXX-SHORT(bp[i]->width)/2,
-	    //   y, bp[i]);
+	    V_DrawPatch(x-w/2, DM_MATRIXY - WI_SPACINGY, bstar);
+	    V_DrawPatch(DM_MATRIXX-w/2, y, star);
 	}
-	x += DM_SPACINGX;
-	y += WI_SPACINGY;
     }
 
     // draw stats
-    y = DM_MATRIXY+10;
     w = SHORT(num[0]->width);
 
-    for (i=0 ; i<MAXPLAYERS ; i++)
+    for (i=0 ; i<n ; i++)
     {
-	x = DM_MATRIXX + DM_SPACINGX;
-
-	if (playeringame[i])
+	for (j=0 ; j<n ; j++)
 	{
-	    for (j=0 ; j<MAXPLAYERS ; j++)
-	    {
-		if (playeringame[j])
-		    WI_drawNum(x+w, y, dm_frags[i][j], 2);
-
-		x += DM_SPACINGX;
-	    }
-	    WI_drawNum(DM_TOTALSX+w, y, dm_totals[i], 2);
+	    if (small)
+		WI_drawSmallNum(DM8_COLUMNSX + j*DM8_SPACINGX + DM8_BOXW/2,
+				DM8_MATRIXY + i*DM8_SPACINGY + 4,
+				dm_frags[ingame[i]][ingame[j]]);
+	    else
+		WI_drawNum(DM_MATRIXX + (j+1)*DM_SPACINGX + w,
+			   DM_MATRIXY + 10 + i*WI_SPACINGY,
+			   dm_frags[ingame[i]][ingame[j]], 2);
 	}
-	y += WI_SPACINGY;
+
+	if (small)
+	    WI_drawSmallNum(DM_TOTALSX + w, DM8_MATRIXY + i*DM8_SPACINGY + 4,
+			    dm_totals[ingame[i]]);
+	else
+	    WI_drawNum(DM_TOTALSX + w, DM_MATRIXY + 10 + i*WI_SPACINGY,
+		       dm_totals[ingame[i]], 2);
     }
 }
 
@@ -1307,10 +1366,10 @@ void WI_drawNetgameStats(void)
 	    continue;
 
 	x = NG_STATSX;
-	V_DrawPatch(x-SHORT(p[i]->width), y, p[i]);
+	WI_drawPlayerPatch(x-SHORT(p[0]->width), y, p, i);
 
 	if (i == me)
-	    V_DrawPatch(x-SHORT(p[i]->width), y, star);
+	    V_DrawPatch(x-SHORT(p[0]->width), y, star);
 
 	x += NG_SPACINGX;
 	WI_drawPercent(x-pwidth, y+10, cnt_kills[i]);	x += NG_SPACINGX;
@@ -1674,7 +1733,7 @@ static void WI_loadUnloadData(load_callback_t callback)
     // "total"
     callback(DEH_String("WIMSTT"), &total);
 
-    for (i=0 ; i<MAXPLAYERS ; i++)
+    for (i=0 ; i<VANILLA_MAXPLAYERS ; i++)
     {
 	// "1,2,3,4"
 	DEH_snprintf(name, 9, "STPB%d", i);

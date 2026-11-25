@@ -17,7 +17,13 @@ import { randomHex } from "./mqtt.js";
 export const SERVER_ID = 1;
 // Every in-game spectator listens here, see doom/src/net_mqtt.h
 export const SPECTATORS = 0;
-export const MAX_PLAYERS = 4;
+// Deathmatch takes eight players, co-op maps have starts for four, see
+// doom/src/doom/doomdef.h
+export const MAX_PLAYERS = 8;
+export const maxPlayersFor = (mode) => (mode === "coop" ? 4 : MAX_PLAYERS);
+// Savegames hold eight players since deathmatch took eight: older ones
+// don't load
+export const SAVE_FORMAT = 2;
 
 // For how long peers try to get a lost connection to the broker back, as
 // when the broker restarts. Doom drops a peer it hasn't heard from for 10 s,
@@ -95,7 +101,13 @@ export function parseListing(payload) {
 
 export function parseSave(payload) {
   const save = parseJson(payload);
-  return validGame(save) && save.players >= 1 && save.players <= MAX_PLAYERS && Number.isFinite(save.savedAt) ? save : null;
+  const valid =
+    validGame(save) &&
+    save.format === SAVE_FORMAT &&
+    save.players >= 1 &&
+    save.players <= maxPlayersFor(save.mode) &&
+    Number.isFinite(save.savedAt);
+  return valid ? save : null;
 }
 
 // What a host publishes for spectators, see doom/src/doom/d_watch.c
@@ -122,10 +134,10 @@ export function parseWatch(payload) {
 }
 
 // A savegame starts with a 24 byte description and a 16 byte version, then
-// skill, episode, map and which of the four players were in the game
+// skill, episode, map and which of the eight players were in the game
 export function readSaveHeader(data) {
-  if (data.length < 47) return null;
-  return { skill: data[40] + 1, map: `E${data[41]}M${data[42]}`, players: data.slice(43, 47).filter(Boolean).length };
+  if (data.length < 43 + MAX_PLAYERS) return null;
+  return { skill: data[40] + 1, map: `E${data[41]}M${data[42]}`, players: data.slice(43, 43 + MAX_PLAYERS).filter(Boolean).length };
 }
 
 // Whether a savegame is the one a listing or a save's summary describes,

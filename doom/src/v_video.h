@@ -54,6 +54,9 @@ void V_CopyRect(int srcx, int srcy, pixel_t *source,
                 int width, int height,
                 int destx, int desty);
 
+// When set, V_DrawPatch recolors through it, e.g. R_PlayerTranslation
+extern byte *dp_translation;
+
 void V_DrawPatch(int x, int y, patch_t *patch);
 void V_DrawPatchFlipped(int x, int y, patch_t *patch);
 void V_DrawTLPatch(int x, int y, patch_t *patch);

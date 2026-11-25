@@ -38,6 +38,14 @@
   tics, and `-nodes` counts players only. Drones can switch players with F12
   in deathmatch too, and get the status bar, messages and sounds of the
   player they watch.
+- Deathmatch takes 8 players, co-op stays at 4 (`MAXPLAYERS`,
+  `VANILLA_MAXPLAYERS`): the host's game mode sets the server's limit.
+  Players 5 to 8 are blue, yellow, white and orange (`R_PlayerTranslation`,
+  three translation bits in the mobj flags), and get the first player's
+  status bar box recolored. With more players than a map has deathmatch
+  spots, the rest spawn on the next free spot or co-op start. Five players
+  or more get a smaller intermission table. Savegames hold eight players,
+  demos keep vanilla's four.
 
 `src/doom/d_watch.c` hands the page what spectators see, nine times a second:
 the players, their scores and the monsters.

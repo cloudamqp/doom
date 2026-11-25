@@ -328,7 +328,8 @@ static patch_t*		keys[NUMCARDS];
 static patch_t*		faces[ST_NUMFACES];
 
 // face background
-static patch_t*		faceback;
+// Behind the face, in each vanilla player's color
+static patch_t*		faceback[VANILLA_MAXPLAYERS];
 
  // main bar right
 static patch_t*		armsbg;
@@ -432,7 +433,18 @@ void ST_refreshBackground(void)
 	    V_DrawPatch(ST_ARMSBGX, 0, sbarr);
 
 	if (netgame)
-	    V_DrawPatch(ST_FX, 0, faceback);
+	{
+	    // Players past the vanilla four get the first one's, recolored
+	    int n = plyr - players;
+	    if (n < VANILLA_MAXPLAYERS)
+		V_DrawPatch(ST_FX, 0, faceback[n]);
+	    else
+	    {
+		dp_translation = R_PlayerTranslation(n);
+		V_DrawPatch(ST_FX, 0, faceback[0]);
+		dp_translation = NULL;
+	    }
+	}
 
         V_RestoreBuffer();
 
@@ -1147,8 +1159,11 @@ static void ST_loadUnloadGraphics(load_callback_t callback)
     }
 
     // face backgrounds for different color players
-    DEH_snprintf(namebuf, 9, "STFB%d", consoleplayer);
-    callback(namebuf, &faceback);
+    for (i=0; i<VANILLA_MAXPLAYERS; ++i)
+    {
+	DEH_snprintf(namebuf, 9, "STFB%d", i);
+	callback(namebuf, &faceback[i]);
+    }
 
     // status bar background bits
     if (W_CheckNumForName("STBAR") >= 0)

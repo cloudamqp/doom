@@ -1,9 +1,9 @@
 import { MqttClient } from "./mqtt.js";
 import {
-  MAX_PLAYERS,
   HOST_TIMEOUT,
   MODES,
   RECONNECT_FOR,
+  SAVE_FORMAT,
   SERVER_ID,
   SPECTATORS,
   brokerUrl,
@@ -13,6 +13,7 @@ import {
   isPeerId,
   isSpectator,
   link,
+  maxPlayersFor,
   modeArgs,
   newPeerId,
   parseListing,
@@ -130,7 +131,7 @@ function retained(mqtt, topic, timeout = 5_000) {
 
 async function host(mqtt) {
   let settings = settingsFromQuery(query);
-  let maxPlayers = MAX_PLAYERS;
+  let maxPlayers = maxPlayersFor(settings.mode);
   let resumedFrom;
   let args = doomArgs(settings);
   const files = {};
@@ -192,7 +193,7 @@ async function host(mqtt) {
       const header = readSaveHeader(data);
       if (!header) return;
       settings = { ...settings, skill: header.skill, map: header.map };
-      const summary = { ...settings, host: playerName, players: header.players, savedAt: Date.now() };
+      const summary = { ...settings, host: playerName, players: header.players, savedAt: Date.now(), format: SAVE_FORMAT };
       mqtt.publish(topics.saveData(gameId), await gzip(data), { retain: true });
       mqtt.publish(topics.save(gameId), JSON.stringify(summary), { retain: true });
       // The resumed game carries on from here
@@ -208,6 +209,7 @@ async function guest(mqtt) {
   const game = listing && parseListing(listing);
   if (!game) throw new Error("No such game.");
   if (game.state !== "waiting") throw new Error("The game has already started.");
+  if (!spectating && game.players >= game.maxPlayers) throw new Error("The game is full.");
   if (spectating && game.spectators === false) throw new Error("This game's host doesn't let anyone watch.");
 
   const files = {};

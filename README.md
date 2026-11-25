@@ -91,7 +91,7 @@ LAME.
   same tic. The host shares its copy, each game keeps only its latest save.
 - The lobby lists saved games whose game has ended. Resume hosts a new game
   that loads the save on every player's side.
-- A savegame records which of the four player slots were in use. A resumed
+- A savegame records which of the eight player slots were in use. A resumed
   game starts by itself once that many players have joined. The host can
   start it earlier with fewer, and the missing players' marines leave the
   game. More can't join: Doom would have no marine for them.
@@ -239,8 +239,8 @@ hides the real games until the next run.
   background tabs entirely, like on phones, pause the game for everyone, and
   after 10 s that player is dropped, or the game ends if it was the host.
 - A broker that is away for more than 8 seconds ends its games.
-- Doom has no drop-in: join before the host starts. 4 players at most, bots
-  included.
+- Doom has no drop-in: join before the host starts. 8 players at most in
+  deathmatch, 4 in co-op, bots included: co-op maps have four player starts.
 - Sound starts on the first click or key press.
 
 ## License

@@ -828,7 +828,7 @@ void G_Ticker(void)
 
             if ((gametic & 31) == 0 && ((gametic >> 5) % MAXPLAYERS) == i && turbodetected[i]) {
                 static char turbomessage[80];
-                extern char *player_names[4];
+                extern const char *player_names[MAXPLAYERS];
                 M_snprintf(turbomessage, sizeof(turbomessage), "%s is turbo!", player_names[i]);
                 players[consoleplayer].message = turbomessage;
                 turbodetected[i] = false;
@@ -1100,8 +1100,32 @@ void G_DeathMatchSpawnPlayer(int playernum)
         }
     }
 
+    // A map can have fewer deathmatch spots than players: try every one,
+    // then the co-op starts, in order, so every peer picks the same
+    for (i = 0; i < selections; i++) {
+        if (G_CheckSpot(playernum, &deathmatchstarts[i])) {
+            deathmatchstarts[i].type = playernum + 1;
+            P_SpawnPlayer(&deathmatchstarts[i]);
+            return;
+        }
+    }
+    for (i = 0; i < VANILLA_MAXPLAYERS; i++) {
+        if (playerstartsingame[i] && G_CheckSpot(playernum, &playerstarts[i])) {
+            mapthing_t spot = playerstarts[i];
+            spot.type = playernum + 1;
+            P_SpawnPlayer(&spot);
+            return;
+        }
+    }
+
     // no good spot, so the player will probably get stuck
-    P_SpawnPlayer(&playerstarts[playernum]);
+    if (playernum < VANILLA_MAXPLAYERS) {
+        P_SpawnPlayer(&playerstarts[playernum]);
+    }
+    else {
+        deathmatchstarts[0].type = playernum + 1;
+        P_SpawnPlayer(&deathmatchstarts[0]);
+    }
 }
 
 //
@@ -1883,7 +1907,8 @@ void G_BeginRecording(void)
         *demo_p++ = consoleplayer;
     }
 
-    for (i = 0; i < MAXPLAYERS; i++)
+    // Demos keep vanilla's four players
+    for (i = 0; i < VANILLA_MAXPLAYERS; i++)
         *demo_p++ = playeringame[i];
 }
 
@@ -1994,7 +2019,7 @@ void G_DoPlayDemo(void)
     }
 
     for (i = 0; i < MAXPLAYERS; i++)
-        playeringame[i] = *demo_p++;
+        playeringame[i] = i < VANILLA_MAXPLAYERS && *demo_p++;
 
     if (playeringame[1] || M_CheckParm("-solo-net") > 0 || M_CheckParm("-netdemo") > 0) {
         netgame = true;

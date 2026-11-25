@@ -523,33 +523,50 @@ void R_DrawTranslatedColumnLow (void)
 //
 // R_InitTranslationTables
 // Creates the translation tables to map
-//  the green color ramp to gray, brown, red.
+//  the green color ramp to gray, brown, red,
+//  and for players past vanilla's four, blue, yellow, white, orange.
 // Assumes a given structure of the PLAYPAL.
 // Could be read from a lump instead.
 //
+static const struct
+{
+    byte first;     // the ramp's first palette index
+    byte shift;     // 1 for a ramp of 8 shades instead of 16
+} player_ramps[MAXPLAYERS - 1] =
+{
+    { 0x60, 0 },    // indigo
+    { 0x40, 0 },    // brown
+    { 0x20, 0 },    // red
+    { 0xc0, 0 },    // blue
+    { 0xe0, 1 },    // yellow
+    { 0x50, 0 },    // white
+    { 0xd0, 0 },    // orange
+};
+
 void R_InitTranslationTables (void)
 {
     int		i;
+    int		t;
 	
-    translationtables = Z_Malloc (256*3, PU_STATIC, 0);
+    translationtables = Z_Malloc (256*(MAXPLAYERS-1), PU_STATIC, 0);
     
-    // translate just the 16 green colors
-    for (i=0 ; i<256 ; i++)
+    // translate just the 16 green colors, keep all other colors as is
+    for (t=0 ; t<MAXPLAYERS-1 ; t++)
     {
-	if (i >= 0x70 && i<= 0x7f)
+	for (i=0 ; i<256 ; i++)
 	{
-	    // map green ramp to gray, brown, red
-	    translationtables[i] = 0x60 + (i&0xf);
-	    translationtables [i+256] = 0x40 + (i&0xf);
-	    translationtables [i+512] = 0x20 + (i&0xf);
-	}
-	else
-	{
-	    // Keep all other colors as is.
-	    translationtables[i] = translationtables[i+256] 
-		= translationtables[i+512] = i;
+	    translationtables[t*256 + i] = i >= 0x70 && i <= 0x7f
+		? player_ramps[t].first + ((i&0xf) >> player_ramps[t].shift)
+		: i;
 	}
     }
+}
+
+// The translation from the first player's green to another player's
+// color, NULL for the first player
+byte *R_PlayerTranslation(int player)
+{
+    return player > 0 ? translationtables + (player-1)*256 : NULL;
 }
 
 

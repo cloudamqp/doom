@@ -22,7 +22,9 @@ const GONE_AFTER = 30_000; // how long an ended game stays among all games
 const MAX_MATCHES = 24;
 
 // Doom's player colors: green, indigo, brown and red
-const PLAYER_COLORS = ["#5ee05e", "#a0a0ff", "#d0975a", "#ff5a4d"];
+// Doom's player colors, brightened for the dark map: green, indigo (a
+// gray), brown, red, and past vanilla's four, blue, yellow, white, orange
+const PLAYER_COLORS = ["#5ee05e", "#9a9a9a", "#d0975a", "#ff5a4d", "#5a78ff", "#ffe94a", "#f0f0f0", "#ff9a2a"];
 const LINE_COLORS = { ceiling: "#4f4943", floor: "#8a7258", wall: "#d9d6ce" };
 const MONSTER_COLOR = "#c0442c";
 

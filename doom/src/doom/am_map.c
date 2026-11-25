@@ -1270,7 +1270,7 @@ void AM_drawPlayers(void)
 {
     int		i;
     player_t*	p;
-    static int 	their_colors[] = { GREENS, GRAYS, BROWNS, REDS };
+    static int 	their_colors[MAXPLAYERS] = { GREENS, GRAYS, BROWNS, REDS, BLUES, 0xe0, 0x50, 0xd4 };
     int		their_color = -1;
     int		color;
 

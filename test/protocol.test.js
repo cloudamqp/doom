@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPeerId, parseListing, saveMatches } from "../web/js/protocol.js";
+import { MAX_PLAYERS, isPeerId, parseListing, saveMatches } from "../web/js/protocol.js";
 
 const json = (value) => new TextEncoder().encode(JSON.stringify(value));
 const listing = { title: "A game", host: "Hanna", mode: "coop", skill: 3, map: "E1M3", monsters: true, players: 1, maxPlayers: 4, state: "waiting" };
 
 // A savegame's header: description, version, then skill, episode, map and
-// which of the four players are in the game
+// which of the eight players are in the game
 function save({ skill, episode, map, players }) {
-  const data = new Uint8Array(50);
-  data.set([skill - 1, episode, map, ...players], 40);
+  const data = new Uint8Array(60);
+  data.set([skill - 1, episode, map, ...Array.from({ length: MAX_PLAYERS }, (_, i) => players[i] ?? 0)], 40);
   return data;
 }
 

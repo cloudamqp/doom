@@ -97,7 +97,7 @@ async function join(guest, title) {
 async function startGame(host, guest, title, mode) {
   await createGame(host, title, mode);
   await join(guest, title);
-  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/4 players"));
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes(" · 2/"));
 
   await launch(host);
   await waitForLine(guest, "doom: 10,");
@@ -127,8 +127,10 @@ test("lobby lists games until their host goes away", async () => {
   await createGame(bob, `Bob ${id}`, "coop");
 
   const row = await lobby.waitForSelector(listing(`Alice ${id}`));
-  assert.match(await row.evaluate((tr) => tr.innerText), /Alice\tDeathmatch\tE1M1\tHurt me plenty\t1\/4\tJoin/);
-  await lobby.waitForSelector(listing(`Bob ${id}`));
+  assert.match(await row.evaluate((tr) => tr.innerText), /Alice\tDeathmatch\tE1M1\tHurt me plenty\t1\/8\tJoin/);
+  // Co-op maps have player starts for four
+  const coop = await lobby.waitForSelector(listing(`Bob ${id}`));
+  assert.match(await coop.evaluate((tr) => tr.innerText), /Co-op\tE1M1\tHurt me plenty\t1\/4\tJoin/);
 
   // Closing the tab clears the listing on pagehide
   await bob.close();
@@ -158,7 +160,7 @@ test("players join a game and play it over MQTT", async () => {
 
   const lobby = await player("Watcher");
   const row = await lobby.waitForSelector(listing(title));
-  assert.match(await row.evaluate((tr) => tr.innerText), /2\/4\tWatch/);
+  assert.match(await row.evaluate((tr) => tr.innerText), /2\/8\tWatch/);
 
   // Doom has no drop-in
   await lobby.goto(guest.url());
@@ -245,7 +247,7 @@ test("a game carries on when the broker restarts", async (t) => {
   const marvin = bot("--name", "Marvin", new URL(host.url()).searchParams.get("game"));
   t.after(() => marvin.kill());
   await Promise.all([join(guest, title), waitForLine(marvin, "Joining")]);
-  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/8 players"));
   await launch(host);
   await Promise.all([waitForLine(guest, "doom: 10,"), waitForLine(marvin, "Entering E1M1")]);
   await sleep(1_000);
@@ -268,7 +270,7 @@ test("a game carries on when the broker restarts", async (t) => {
   // And the lobby lists the game again
   const lobby = await player("Watcher");
   const row = await lobby.waitForSelector(listing(title));
-  assert.match(await row.evaluate((tr) => tr.innerText), /3\/4\tWatch/);
+  assert.match(await row.evaluate((tr) => tr.innerText), /3\/8\tWatch/);
 });
 
 test("a player who closes the tab doesn't stall the others", async () => {
@@ -276,7 +278,7 @@ test("a player who closes the tab doesn't stall the others", async () => {
   const title = `Leaving ${Date.now().toString(36)}`;
   await createGame(host, title);
   await Promise.all([join(bob, title), join(carol, title)]);
-  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/8 players"));
   await launch(host);
   await Promise.all([waitForLine(bob, "doom: 10,"), waitForLine(carol, "doom: 10,")]);
   await sleep(1_000);
@@ -297,7 +299,7 @@ test("a bot that is killed doesn't stall the others", async (t) => {
   const marvin = bot("--name", "Marvin", new URL(host.url()).searchParams.get("game"));
   t.after(() => marvin.kill());
   await Promise.all([join(bob, title), waitForLine(marvin, "Joining")]);
-  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/8 players"));
   await launch(host);
   await Promise.all([waitForLine(bob, "doom: 10,"), waitForLine(marvin, "Entering E1M1")]);
   await sleep(1_000);
@@ -395,7 +397,7 @@ test("spectators watch in Doom, all from one copy of the game", async () => {
   await join(guest, title);
   await Promise.all([spectate(ann, title), spectate(ben, title)]);
   // Spectators aren't players
-  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/4 players"));
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("2/8 players"));
   await launch(host);
   await Promise.all([guest, ann, ben].map((page) => waitForLine(page, "doom: 10,")));
   assert.equal(await ann.$eval("#hint", (p) => p.textContent), "You're spectating.");
@@ -443,7 +445,7 @@ test("a host can keep a game to its players", async () => {
   await createGame(host, title);
 
   const row = await lobby.waitForSelector(listing(title));
-  assert.match(await row.evaluate((tr) => tr.innerText), /1\/4\tJoin$/);
+  assert.match(await row.evaluate((tr) => tr.innerText), /1\/8\tJoin$/);
   await lobby.goto(`${WEB_URL}/?game=${new URL(host.url()).searchParams.get("game")}&spectate`);
   await lobby.waitForSelector("#overlay:not([hidden])");
   assert.equal(await lobby.$eval("#message", (p) => p.textContent), "This game's host doesn't let anyone watch.");
@@ -453,10 +455,33 @@ test("a host can keep a game to its players", async () => {
   await launch(host);
   // No watching from above either
   await lobby.waitForFunction(
-    (title) => [...document.querySelectorAll("#games tbody tr")].some((tr) => tr.cells[0].textContent === title && tr.innerText.endsWith("1/4\tPlaying")),
+    (title) => [...document.querySelectorAll("#games tbody tr")].some((tr) => tr.cells[0].textContent === title && tr.innerText.endsWith("1/8\tPlaying")),
     {},
     title,
   );
+});
+
+test("eight players fill a deathmatch", async () => {
+  const names = ["Hanna", "Ozzy", "Bea", "Rex", "Kim", "Yuki", "Wes", "Olle"];
+  const [host, ...guests] = await Promise.all(names.map((name) => player(name)));
+  const title = `Eight ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  for (const guest of guests) await join(guest, title);
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("8/8 players"));
+  await launch(host);
+  await Promise.all(guests.map((guest) => waitForLine(guest, "doom: 10,")));
+
+  // Every marine made it into the level, as spectators see it
+  const game = new URL(host.url()).searchParams.get("game");
+  const mqtt = await MqttClient.connect(BROKER_URL);
+  const snapshot = new Promise((resolve) => {
+    mqtt.onmessage = (topic, payload) => resolve(JSON.parse(new TextDecoder().decode(payload)));
+  });
+  await mqtt.subscribe(`doomq/watch/${game}`);
+  const { players } = await snapshot;
+  mqtt.close();
+  assert.deepEqual(players.map((p) => p.name).sort(), [...names].sort());
+  assert.deepEqual(players.map((p) => p.number).sort(), [0, 1, 2, 3, 4, 5, 6, 7]);
 });
 
 test("a player far away doesn't slow the game down", async () => {
@@ -588,9 +613,9 @@ test("Doom's errors reach the player", async () => {
 // Anyone can publish a save. Doom uses much of one as indexes into its own
 // tables, and checks them as it reads them.
 test("a save can't point Doom outside the game", async () => {
-  // After the 50 byte header, padded to 52: the first player's marine, then
+  // After the 54 byte header, padded to 56: the first player's marine, then
   // the player's state, one of three
-  assert.equal(await resumeDamaged((data) => (data[56] = 99)), "Bad savegame: player state 99");
+  assert.equal(await resumeDamaged((data) => (data[60] = 99)), "Bad savegame: player state 99");
 });
 
 test("a save for another game than the lobby says is refused", async () => {

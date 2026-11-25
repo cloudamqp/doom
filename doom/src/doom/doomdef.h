@@ -41,8 +41,12 @@
 // most parameter validation debugging code will not be compiled
 #define RANGECHECK
 
-// The maximum number of players, multiplayer/networking.
-#define MAXPLAYERS 4
+// The maximum number of players, multiplayer/networking. Vanilla has
+// four, with a player start, a color and a set of status bar and
+// intermission patches each. Co-op stays at four, deathmatch takes eight:
+// see d_net.c, and R_PlayerTranslation for the colors of the other four.
+#define MAXPLAYERS 8
+#define VANILLA_MAXPLAYERS 4
 
 // The current state of the game: whether we are
 // playing, gazing at the intermission screen,

@@ -145,7 +145,9 @@ static void InitConnectData(net_connect_data_t *connect_data)
 {
     boolean shorttics;
 
-    connect_data->max_players = MAXPLAYERS;
+    // Co-op maps have four player starts; the host's client connects
+    // first, so its game mode sets the limit for everyone
+    connect_data->max_players = M_ParmExists("-deathmatch") || M_ParmExists("-altdeath") ? MAXPLAYERS : VANILLA_MAXPLAYERS;
     connect_data->drone = false;
 
     //!

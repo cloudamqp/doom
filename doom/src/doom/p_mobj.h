@@ -188,9 +188,9 @@ typedef enum
 
     // Player sprites in multiplayer modes are modified
     //  using an internal color lookup table for re-indexing.
-    // If 0x4 0x8 or 0xc,
-    //  use a translation table for player colormaps
-    MF_TRANSLATION  	= 0xc000000,
+    // If not 0, use a translation table for player colormaps:
+    //  three bits, for eight players
+    MF_TRANSLATION  	= 0x1c000000,
     // Hmm ???.
     MF_TRANSSHIFT	= 26
 

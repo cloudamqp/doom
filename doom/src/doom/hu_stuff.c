@@ -66,12 +66,16 @@
 
 char *chat_macros[10];
 
-const char *player_names[] =
+const char *player_names[MAXPLAYERS] =
 {
     HUSTR_PLRGREEN,
     HUSTR_PLRINDIGO,
     HUSTR_PLRBROWN,
-    HUSTR_PLRRED
+    HUSTR_PLRRED,
+    "Blue: ",
+    "Yellow: ",
+    "White: ",
+    "Orange: "
 };
 
 char			chat_char; // remove later.
