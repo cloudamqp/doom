@@ -31,6 +31,7 @@
 #include "doomstat.h"
 #include "g_game.h"
 #include "m_misc.h"
+#include "r_main.h"
 #include "r_state.h"
 
 FILE *save_stream;
@@ -194,6 +195,19 @@ static void saveg_writep(const void *p)
 #define saveg_read_enum saveg_read32
 #define saveg_write_enum saveg_write32
 
+// In DooMQ savegames come from the network, from anyone. What Doom goes on
+// to use as an index is checked here, where it is read: nothing later does.
+
+static int saveg_index(int index, int count, const char *what)
+{
+    if (index < 0 || index >= count)
+    {
+        I_Error("Bad savegame: %s %i", what, index);
+    }
+
+    return index;
+}
+
 //
 // Structure read/write functions
 //
@@ -321,10 +335,11 @@ static void saveg_read_mobj_t(mobj_t *str)
     str->angle = saveg_read32();
 
     // spritenum_t sprite;
-    str->sprite = saveg_read_enum();
+    str->sprite = saveg_index(saveg_read_enum(), numsprites, "sprite");
 
     // int frame;
     str->frame = saveg_read32();
+    saveg_index(str->frame & FF_FRAMEMASK, sprites[str->sprite].numframes, "frame");
 
     // struct mobj_s* bnext;
     str->bnext = saveg_readp();
@@ -360,7 +375,7 @@ static void saveg_read_mobj_t(mobj_t *str)
     str->validcount = saveg_read32();
 
     // mobjtype_t type;
-    str->type = saveg_read_enum();
+    str->type = saveg_index(saveg_read_enum(), NUMMOBJTYPES, "thing type");
 
     // mobjinfo_t* info;
     str->info = saveg_readp();
@@ -369,7 +384,7 @@ static void saveg_read_mobj_t(mobj_t *str)
     str->tics = saveg_read32();
 
     // state_t* state;
-    str->state = &states[saveg_read32()];
+    str->state = &states[saveg_index(saveg_read32(), NUMSTATES, "state")];
 
     // int flags;
     str->flags = saveg_read32();
@@ -393,7 +408,12 @@ static void saveg_read_mobj_t(mobj_t *str)
     str->threshold = saveg_read32();
 
     // struct player_s* player;
-    pl = saveg_read32();
+    pl = saveg_index(saveg_read32(), MAXPLAYERS + 1, "player");
+
+    if (pl > 0 && !playeringame[pl - 1])
+    {
+        I_Error("Bad savegame: player %i isn't in the game", pl);
+    }
 
     if (pl > 0)
     {
@@ -406,7 +426,7 @@ static void saveg_read_mobj_t(mobj_t *str)
     }
 
     // int lastlook;
-    str->lastlook = saveg_read32();
+    str->lastlook = saveg_index(saveg_read32(), MAXPLAYERS, "last look");
 
     // mapthing_t spawnpoint;
     saveg_read_mapthing_t(&str->spawnpoint);
@@ -588,7 +608,7 @@ static void saveg_read_pspdef_t(pspdef_t *str)
     int state;
 
     // state_t* state;
-    state = saveg_read32();
+    state = saveg_index(saveg_read32(), NUMSTATES, "weapon state");
 
     if (state > 0)
     {
@@ -643,7 +663,7 @@ static void saveg_read_player_t(player_t *str)
     str->mo = saveg_readp();
 
     // playerstate_t playerstate;
-    str->playerstate = saveg_read_enum();
+    str->playerstate = saveg_index(saveg_read_enum(), PST_REBORN + 1, "player state");
 
     // ticcmd_t cmd;
     saveg_read_ticcmd_t(&str->cmd);
@@ -691,10 +711,15 @@ static void saveg_read_player_t(player_t *str)
     }
 
     // weapontype_t readyweapon;
-    str->readyweapon = saveg_read_enum();
+    str->readyweapon = saveg_index(saveg_read_enum(), NUMWEAPONS, "weapon");
 
     // weapontype_t pendingweapon;
     str->pendingweapon = saveg_read_enum();
+
+    if (str->pendingweapon != wp_nochange)
+    {
+        saveg_index(str->pendingweapon, NUMWEAPONS, "pending weapon");
+    }
 
     // boolean weaponowned[NUMWEAPONS];
     for (i=0; i<NUMWEAPONS; ++i)
@@ -751,7 +776,8 @@ static void saveg_read_player_t(player_t *str)
     str->extralight = saveg_read32();
 
     // int fixedcolormap;
-    str->fixedcolormap = saveg_read32();
+    // The colormaps for light levels, then the inverse one of invulnerability
+    str->fixedcolormap = saveg_index(saveg_read32(), NUMCOLORMAPS + 1, "colormap");
 
     // int colormap;
     str->colormap = saveg_read32();
@@ -913,7 +939,7 @@ static void saveg_read_ceiling_t(ceiling_t *str)
     str->type = saveg_read_enum();
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // fixed_t bottomheight;
@@ -986,7 +1012,7 @@ static void saveg_read_vldoor_t(vldoor_t *str)
     str->type = saveg_read_enum();
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // fixed_t topheight;
@@ -1050,7 +1076,7 @@ static void saveg_read_floormove_t(floormove_t *str)
     str->crush = saveg_read32();
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // int direction;
@@ -1061,6 +1087,13 @@ static void saveg_read_floormove_t(floormove_t *str)
 
     // short texture;
     str->texture = saveg_read16();
+
+    // A flat, for the floors that change theirs once they have moved.
+    // Doom leaves it unset in the others.
+    if (str->type == donutRaise || str->type == lowerAndChange)
+    {
+        saveg_index(str->texture, numflats, "flat");
+    }
 
     // fixed_t floordestheight;
     str->floordestheight = saveg_read32();
@@ -1111,7 +1144,7 @@ static void saveg_read_plat_t(plat_t *str)
     saveg_read_thinker_t(&str->thinker);
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // fixed_t speed;
@@ -1196,7 +1229,7 @@ static void saveg_read_lightflash_t(lightflash_t *str)
     saveg_read_thinker_t(&str->thinker);
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // int count;
@@ -1251,7 +1284,7 @@ static void saveg_read_strobe_t(strobe_t *str)
     saveg_read_thinker_t(&str->thinker);
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // int count;
@@ -1306,7 +1339,7 @@ static void saveg_read_glow_t(glow_t *str)
     saveg_read_thinker_t(&str->thinker);
 
     // sector_t* sector;
-    sector = saveg_read32();
+    sector = saveg_index(saveg_read32(), numsectors, "sector");
     str->sector = &sectors[sector];
 
     // int minlight;
@@ -1393,9 +1426,14 @@ boolean P_ReadSaveGameHeader(void)
     if (strcmp(read_vcheck, vcheck) != 0)
 	return false;				// bad version 
 
-    gameskill = saveg_read8();
+    gameskill = saveg_index(saveg_read8(), sk_nightmare + 1, "skill");
     gameepisode = saveg_read8();
     gamemap = saveg_read8();
+
+    if (!D_ValidEpisodeMap(gamemission, gamemode, gameepisode, gamemap))
+    {
+        I_Error("Bad savegame: no map %i of episode %i", gamemap, gameepisode);
+    }
 
     for (i=0 ; i<MAXPLAYERS ; i++) 
 	playeringame[i] = saveg_read8();
@@ -1539,8 +1577,8 @@ void P_UnArchiveWorld (void)
     {
 	sec->floorheight = saveg_read16() << FRACBITS;
 	sec->ceilingheight = saveg_read16() << FRACBITS;
-	sec->floorpic = saveg_read16();
-	sec->ceilingpic = saveg_read16();
+	sec->floorpic = saveg_index(saveg_read16(), numflats, "flat");
+	sec->ceilingpic = saveg_index(saveg_read16(), numflats, "flat");
 	sec->lightlevel = saveg_read16();
 	sec->special = saveg_read16();		// needed?
 	sec->tag = saveg_read16();		// needed?
@@ -1561,9 +1599,9 @@ void P_UnArchiveWorld (void)
 	    si = &sides[li->sidenum[j]];
 	    si->textureoffset = saveg_read16() << FRACBITS;
 	    si->rowoffset = saveg_read16() << FRACBITS;
-	    si->toptexture = saveg_read16();
-	    si->bottomtexture = saveg_read16();
-	    si->midtexture = saveg_read16();
+	    si->toptexture = saveg_index(saveg_read16(), numtextures, "texture");
+	    si->bottomtexture = saveg_index(saveg_read16(), numtextures, "texture");
+	    si->midtexture = saveg_index(saveg_read16(), numtextures, "texture");
 	}
     }
 }
@@ -1620,6 +1658,7 @@ void P_UnArchiveThinkers (void)
     thinker_t*		currentthinker;
     thinker_t*		next;
     mobj_t*		mobj;
+    int			i;
     
     // remove all the current thinkers
     currentthinker = thinkercap.next;
@@ -1643,6 +1682,14 @@ void P_UnArchiveThinkers (void)
 	switch (tclass)
 	{
 	  case tc_end:
+	    // Doom takes a player's marine for granted
+	    for (i=0 ; i<MAXPLAYERS ; i++)
+	    {
+		if (playeringame[i] && players[i].mo == NULL)
+		{
+		    I_Error("Bad savegame: player %i has no marine", i + 1);
+		}
+	    }
 	    return; 	// end of list
 			
 	  case tc_mobj:

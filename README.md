@@ -83,6 +83,10 @@ LAME.
 - Anyone with the credentials can publish a save, so players' browsers stop
   unpacking one at 1 MB (`web/js/gzip.js`): a few KB of gzip can expand to
   gigabytes.
+- Doom finds its way around a level with what a save says: which sector a
+  door is in, which state a monster is in. It checks those as it reads them
+  (`doom/src/doom/p_saveg.c`), and refuses a save that points outside the
+  game.
 
 ## Bots
 
