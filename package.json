@@ -6,6 +6,6 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "puppeteer": "^24.43.1"
+    "puppeteer": "^25.18.1"
   }
 }
