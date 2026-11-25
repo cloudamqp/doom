@@ -48,6 +48,8 @@ const SPECTATOR_BIT = 0x80000000;
 export const newPeerId = (spectator = false) =>
   (spectator ? SPECTATOR_BIT : 0) + 2 + (crypto.getRandomValues(new Uint32Array(1))[0] % (SPECTATOR_BIT - 2));
 export const isSpectator = (peer) => peer >= SPECTATOR_BIT;
+// The sender is a topic level: anything can stand there
+export const isPeerId = (peer) => Number.isInteger(peer) && peer >= 1 && peer <= 0xffffffff;
 
 function parseJson(payload) {
   try {
@@ -57,11 +59,14 @@ function parseJson(payload) {
   }
 }
 
+// Bots print titles and names to a terminal, which control characters steer
+const text = (value) => typeof value === "string" && !/\p{Cc}/u.test(value);
+
 // What listings and saves have in common
 function validGame(game) {
   return (
-    typeof game?.title === "string" &&
-    typeof game.host === "string" &&
+    text(game?.title) &&
+    text(game.host) &&
     game.mode in MODES &&
     SKILLS[game.skill - 1] !== undefined &&
     MAPS.includes(game.map) &&

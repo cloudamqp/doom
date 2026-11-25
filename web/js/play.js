@@ -8,6 +8,7 @@ import {
   deleteSave,
   doomArgs,
   isGameId,
+  isPeerId,
   isSpectator,
   link,
   modeArgs,
@@ -92,7 +93,7 @@ function receive(topic, payload) {
   } else {
     const prefix = inboxes.find((inbox) => topic.startsWith(inbox));
     const from = prefix && Number(topic.slice(prefix.length));
-    if (!Number.isInteger(from) || from < 1 || from > 0xffffffff) return;
+    if (!isPeerId(from)) return;
     inbox.push({ from, data: payload });
     if (!isSpectator(from)) lastSeen.set(from, performance.now());
   }
