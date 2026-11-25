@@ -1,5 +1,6 @@
 // Minimal MQTT 3.1.1 client over WebSocket. Supports what DooMQ needs:
-// QoS 0 publish/subscribe, retained messages and a last will.
+// QoS 0 publish/subscribe, retained messages, a last will, and getting a
+// lost connection back.
 
 const CONNECT = 1;
 const CONNACK = 2;
@@ -128,46 +129,55 @@ export function parsePublish({ flags, body }) {
   };
 }
 
+// How often a lost connection is tried again
+const RETRY_INTERVAL = 250;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export class MqttClient {
   // url may carry credentials: ws://user:pass@host:15672/mqtt
-  static connect(url, { will, keepalive = 60 } = {}) {
-    const target = new URL(url);
-    const username = decodeURIComponent(target.username);
-    const password = decodeURIComponent(target.password);
-    target.username = target.password = "";
-
-    const clientId = `doomq-${randomHex(8)}`;
-    const ws = new WebSocket(target, "mqtt");
-    ws.binaryType = "arraybuffer";
-
-    return new Promise((resolve, reject) => {
-      const client = new MqttClient(ws, keepalive, (error) => (error ? reject(error) : resolve(client)));
-      ws.onopen = () => ws.send(connectPacket({ clientId, username, password, keepalive, will }));
-      ws.onerror = () => reject(new Error(`Could not connect to ${target}`));
-    });
+  //
+  // With retry, a connection that is lost is tried again for that many
+  // milliseconds, as when the broker restarts: ondrop() tells of the loss,
+  // onreconnect() that the client is back and subscribed as before. What is
+  // published in between is lost, as are the messages that came. Without
+  // retry, or when the time is up, onclose() tells that it is over.
+  static async connect(url, options) {
+    const client = new MqttClient(url, options);
+    try {
+      await client.#open();
+    } catch (error) {
+      clearInterval(client.#ping);
+      throw error;
+    }
+    return client;
   }
 
   onmessage = () => {};
+  ondrop = () => {};
+  onreconnect = () => {};
   onclose = () => {};
 
+  #target;
+  #session; // what the broker is told as the connection opens
+  #retry;
   #ws;
-  #buffer = new Uint8Array(0);
+  #buffer;
   #nextId = 1;
   #pending = new Map();
+  #filters = new Set(); // subscribed to, for when the connection is back
   #ping;
   #handshake;
+  #recovering = false;
+  #closed = false;
 
-  constructor(ws, keepalive, handshake) {
-    this.#ws = ws;
-    this.#handshake = handshake;
-    ws.onmessage = (event) => this.#receive(new Uint8Array(event.data));
-    ws.onclose = () => {
-      clearInterval(this.#ping);
-      this.#handshake?.(new Error("connection closed"));
-      for (const { reject } of this.#pending.values()) reject(new Error("connection closed"));
-      this.#pending.clear();
-      this.onclose();
-    };
+  constructor(url, { will, keepalive = 60, retry = 0 } = {}) {
+    this.#target = new URL(url);
+    const username = decodeURIComponent(this.#target.username);
+    const password = decodeURIComponent(this.#target.password);
+    this.#target.username = this.#target.password = "";
+    this.#session = { clientId: `doomq-${randomHex(8)}`, username, password, keepalive, will };
+    this.#retry = retry;
     this.#ping = setInterval(() => this.#send(Uint8Array.of(PINGREQ << 4, 0)), (keepalive * 1000) / 2);
   }
 
@@ -180,6 +190,7 @@ export class MqttClient {
   }
 
   subscribe(filter) {
+    this.#filters.add(filter);
     const id = this.#nextId;
     this.#nextId = (id % 0xffff) + 1;
     return new Promise((resolve, reject) => {
@@ -189,8 +200,55 @@ export class MqttClient {
   }
 
   close() {
+    this.#closed = true;
     this.#send(Uint8Array.of(DISCONNECT << 4, 0));
     this.#ws.close();
+  }
+
+  // Opens a connection, and resolves once the broker has accepted it
+  #open() {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(this.#target, "mqtt");
+      let accepted = false;
+      ws.binaryType = "arraybuffer";
+      ws.onopen = () => ws.send(connectPacket(this.#session));
+      ws.onerror = () => reject(new Error(`Could not connect to ${this.#target}`));
+      ws.onmessage = (event) => this.#receive(new Uint8Array(event.data));
+      ws.onclose = () => {
+        this.#handshake?.(new Error("connection closed"));
+        for (const pending of this.#pending.values()) pending.reject(new Error("connection closed"));
+        this.#pending.clear();
+        if (accepted) this.#lost();
+      };
+      this.#ws = ws;
+      this.#buffer = new Uint8Array(0);
+      this.#handshake = (error) => {
+        this.#handshake = null;
+        accepted = !error;
+        if (error) reject(error);
+        else resolve();
+      };
+    });
+  }
+
+  async #lost() {
+    if (this.#recovering) return;
+    this.#recovering = true;
+    const deadline = Date.now() + (this.#closed ? 0 : this.#retry);
+    if (Date.now() < deadline) this.ondrop();
+    while (Date.now() < deadline) {
+      try {
+        await this.#open();
+        await Promise.all(Array.from(this.#filters, (filter) => this.subscribe(filter)));
+        this.#recovering = false;
+        this.onreconnect();
+        return;
+      } catch {
+        await sleep(RETRY_INTERVAL);
+      }
+    }
+    clearInterval(this.#ping);
+    this.onclose();
   }
 
   #send(data) {
@@ -208,7 +266,6 @@ export class MqttClient {
       case CONNACK: {
         const code = p.body[1];
         this.#handshake(code && new Error(`MQTT connect refused: ${CONNACK_ERRORS[code] ?? code}`));
-        this.#handshake = null;
         break;
       }
       case PUBLISH: {
