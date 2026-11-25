@@ -17,6 +17,9 @@ const QUIET_AFTER = 5_000; // the host stopped publishing
 // A host that never publishes, on a build from before spectators
 const SILENT_AFTER = 10_000;
 const GONE_AFTER = 30_000; // how long an ended game stays among all games
+// Every match draws its map. Anyone can publish listings, also for games that
+// don't exist, so all games shows this many.
+const MAX_MATCHES = 24;
 
 // Doom's player colors: green, indigo, brown and red
 const PLAYER_COLORS = ["#5ee05e", "#a0a0ff", "#d0975a", "#ff5a4d"];
@@ -229,8 +232,9 @@ class Match {
   }
 }
 
+// None when the page is full
 function matchFor(id) {
-  if (!matches.has(id)) matches.set(id, new Match(id));
+  if (!matches.has(id) && matches.size < MAX_MATCHES) matches.set(id, new Match(id));
   return matches.get(id);
 }
 
@@ -267,14 +271,15 @@ if (only && !isGameId(only)) {
     mqtt.onclose = () => setStatus("Disconnected from broker, reload to retry");
     mqtt.onmessage = (topic, payload) => {
       const [, kind, id] = topic.split("/");
-      if (only && id !== only) return;
+      if (!isGameId(id) || (only && id !== only)) return;
       if (kind === "lobby") {
         const game = parseListing(payload);
         // All games shows games in progress, and keeps those it already shows
-        if (game?.state === "playing" || matches.has(id) || only) matchFor(id).setListing(game);
+        if (game?.state === "playing" || matches.has(id) || only) matchFor(id)?.setListing(game);
       } else {
         const watch = parseWatch(payload);
-        if (watch) matchFor(id).update(watch);
+        // A game shows once its listing says it's in progress
+        if (watch) matches.get(id)?.update(watch);
       }
       refresh();
     };
