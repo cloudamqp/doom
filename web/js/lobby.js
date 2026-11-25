@@ -3,6 +3,7 @@ import {
   MAPS,
   MAX_GAMES,
   MODES,
+  RECONNECT_FOR,
   SKILLS,
   brokerUrl,
   deleteSave,
@@ -188,8 +189,11 @@ downloads.then(
 );
 
 async function listen() {
-  mqtt = await MqttClient.connect(brokerUrl);
+  mqtt = await MqttClient.connect(brokerUrl, { retry: RECONNECT_FOR });
   if (leaving) return mqtt.close();
+  // A broker that restarts sends what it retained again
+  mqtt.ondrop = () => setStatus("Reconnecting…");
+  mqtt.onreconnect = () => setStatus("Connected", true);
   mqtt.onclose = () => setStatus("Disconnected from broker, reload to retry");
 
   // Every visitor helps keep the broker tidy

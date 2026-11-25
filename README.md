@@ -36,6 +36,25 @@ their tab.
 
 `web/js/mqtt.js` is a small MQTT 3.1.1 client with just what this needs.
 
+### When the broker restarts
+
+A game carries on, if the broker is back within 8 seconds: Doom drops a peer
+it hasn't heard from for 10.
+
+- Every player's client connects again and subscribes as before
+  (`web/js/mqtt.js`). The game stands still meanwhile, and Doom sends again
+  what went missing.
+- A broker that shuts down publishes everyone's last will on its way out. The
+  host's clears its listing, so the host announces the game again once it is
+  back, and guests give a listing that went away 10 seconds to return.
+- A guest's will is Doom's disconnect packet to the host. The host holds such
+  a packet for a moment before Doom gets it, and forgets it if its own
+  connection drops: that was the broker leaving, not the guest
+  (`web/js/goodbyes.js`).
+
+Retained messages, the listings and the saves, are kept by LavinMQ across the
+restart.
+
 The lobby and the games share `web/index.html`. A game opens in place, so the
 download of Doom (31 MB, mostly the Freedoom WAD) that starts with the lobby
 carries on, or is already done (`web/js/files.js`).
@@ -219,6 +238,7 @@ hides the real games until the next run.
   timers, so a Web Worker's timer runs the game instead. Browsers that suspend
   background tabs entirely, like on phones, pause the game for everyone, and
   after 10 s that player is dropped, or the game ends if it was the host.
+- A broker that is away for more than 8 seconds ends its games.
 - Doom has no drop-in: join before the host starts. 4 players at most, bots
   included.
 - Sound starts on the first click or key press.

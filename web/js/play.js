@@ -1,7 +1,9 @@
 import { MqttClient } from "./mqtt.js";
 import {
   MAX_PLAYERS,
+  HOST_TIMEOUT,
   MODES,
+  RECONNECT_FOR,
   SERVER_ID,
   SPECTATORS,
   brokerUrl,
@@ -23,6 +25,7 @@ import {
 } from "./doomq.js";
 import { downloads, watchProgress } from "./files.js";
 import { burn } from "./fire.js";
+import { GOODBYE, holdGoodbyes } from "./goodbyes.js";
 import { gunzip, gzip } from "./gzip.js";
 import { stopMusic } from "./music.js";
 
@@ -44,12 +47,13 @@ const resumeId = query.get("resume");
 const playerName = (localStorage.getItem("doomq:name") || "Marine").slice(0, 20);
 const peerId = hosting ? SERVER_ID : newPeerId(spectating);
 
-// NET_PACKET_TYPE_DISCONNECT, see doom/src/net_defs.h
-const DISCONNECT = Uint8Array.of(0, 8);
 // Spectators get the game itself where they all listen, the rest on their own
 const inboxes = [peerId, ...(spectating ? [SPECTATORS] : [])].map((to) => topics.packet(gameId, to, ""));
 
 const inbox = [];
+// See goodbyes.js: guests whose goodbye the broker said as it shut down
+const goodbyes = holdGoodbyes((packet) => inbox.push(packet));
+let hostLeft; // timer, from when the host's listing went away
 const lastSeen = new Map(); // peer -> time of its last packet, the host counts players with it
 const waiting = new Map(); // topic -> callback for its retained message
 let error = "The game crashed.";
@@ -88,13 +92,16 @@ function receive(topic, payload) {
   if (topic === topics.listing(gameId)) {
     // Guests follow the host's listing
     const game = parseListing(payload);
+    clearTimeout(hostLeft);
     if (game) describe(game);
-    else fail("The host left the game.");
+    // A broker that restarts clears the listing too, with the host's last
+    // will. The host puts it back as soon as it is connected again.
+    else hostLeft = setTimeout(fail, HOST_TIMEOUT, "The host left the game.");
   } else {
     const prefix = inboxes.find((inbox) => topic.startsWith(inbox));
     const from = prefix && Number(topic.slice(prefix.length));
     if (!isPeerId(from)) return;
-    inbox.push({ from, data: payload });
+    goodbyes.receive({ from, data: payload });
     if (!isSpectator(from)) lastSeen.set(from, performance.now());
   }
 }
@@ -178,6 +185,8 @@ async function host(mqtt) {
       announce();
       setInterval(() => Module._G_AutoSave(), AUTOSAVE_INTERVAL);
     },
+    // The broker cleared the listing as the connection went
+    reconnected: announce,
     // Every player saved the same tic, the host shares its copy
     async saved(data) {
       const header = readSaveHeader(data);
@@ -325,16 +334,27 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
     // the guest to time out.
     const will = hosting
       ? { topic: topics.listing(gameId), payload: "", retain: true }
-      : { topic: topics.packet(gameId, SERVER_ID, peerId), payload: DISCONNECT };
-    const mqtt = await MqttClient.connect(brokerUrl, { will });
+      : { topic: topics.packet(gameId, SERVER_ID, peerId), payload: GOODBYE };
+    // A broker that restarts is back within seconds: the game stands still
+    // meanwhile, and Doom sends again what went missing
+    const mqtt = await MqttClient.connect(brokerUrl, { will, retry: RECONNECT_FOR });
+    let role;
     mqtt.onmessage = receive;
     setStatus("Connected", true);
+    mqtt.ondrop = () => {
+      setStatus("Reconnecting…");
+      goodbyes.forget();
+    };
+    mqtt.onreconnect = () => {
+      setStatus("Connected", true);
+      role?.reconnected?.();
+    };
     mqtt.onclose = () => {
       setStatus("Disconnected");
       fail("Lost connection to the broker.");
     };
     for (const to of [peerId, ...(spectating ? [SPECTATORS] : [])]) await mqtt.subscribe(topics.inbox(gameId, to));
-    const role = await (hosting ? host(mqtt) : guest(mqtt));
+    role = await (hosting ? host(mqtt) : guest(mqtt));
     const doom = await downloads;
     unwatch();
     startDoom(mqtt, role, doom);

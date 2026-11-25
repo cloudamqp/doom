@@ -5,7 +5,7 @@
 // starts by itself once enough players have joined.
 
 import { MqttClient } from "../web/js/mqtt.js";
-import { SERVER_ID, doomArgs, isSpectator, newGameId, topics } from "../web/js/protocol.js";
+import { RECONNECT_FOR, SERVER_ID, doomArgs, isSpectator, newGameId, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
@@ -25,8 +25,9 @@ export async function host({ broker, name, settings, players, bot, say, print })
   const game = newGameId();
   const listing = topics.listing(game);
   // A host that crashes takes its listing with it
-  const mqtt = await MqttClient.connect(broker, { will: { topic: listing, payload: "", retain: true } });
-  const { deliver, net } = network(mqtt, game, SERVER_ID);
+  const will = { topic: listing, payload: "", retain: true };
+  const mqtt = await MqttClient.connect(broker, { will, retry: RECONNECT_FOR });
+  const { deliver, dropped, net } = network(mqtt, game, SERVER_ID);
   const seen = new Map(); // guest -> when its last packet came
   let state = "waiting";
 
@@ -37,6 +38,16 @@ export async function host({ broker, name, settings, players, bot, say, print })
   };
   const over = Promise.withResolvers();
   mqtt.onclose = () => over.reject(new Error("Lost connection to the broker"));
+  // A broker that restarts is back within seconds, with the listing cleared
+  // by the will. The game stands still meanwhile.
+  mqtt.ondrop = () => {
+    say("Lost the broker, trying to get back");
+    dropped();
+  };
+  mqtt.onreconnect = () => {
+    say("Back on the broker");
+    announce();
+  };
   mqtt.onmessage = (topic, payload) => {
     const from = deliver(topic, payload);
     // Spectators are no players

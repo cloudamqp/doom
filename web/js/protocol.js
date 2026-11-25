@@ -19,6 +19,12 @@ export const SERVER_ID = 1;
 export const SPECTATORS = 0;
 export const MAX_PLAYERS = 4;
 
+// For how long peers try to get a lost connection to the broker back, as
+// when the broker restarts. Doom drops a peer it hasn't heard from for 10 s,
+// and gives a host that long too.
+export const RECONNECT_FOR = 8_000;
+export const HOST_TIMEOUT = 10_000;
+
 export const topics = {
   lobby: "doomq/lobby/+",
   listing: (game) => `doomq/lobby/${game}`,

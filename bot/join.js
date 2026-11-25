@@ -3,15 +3,14 @@
 
 import { MqttClient } from "../web/js/mqtt.js";
 import { gunzip } from "../web/js/gzip.js";
-import { SERVER_ID, isGameId, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
+import { GOODBYE } from "../web/js/goodbyes.js";
+import { HOST_TIMEOUT, RECONNECT_FOR, SERVER_ID, isGameId, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
 // Where Doom looks for the save of a resumed game, -loadgame 0
 const RESUME_FILE = "saves/doomsav0.dsg";
 const LOBBY = topics.listing("");
-// NET_PACKET_TYPE_DISCONNECT, see doom/src/net_defs.h
-const DISCONNECT = Uint8Array.of(0, 8);
 
 const joinable = (game) => game?.state === "waiting" && game.players < game.maxPlayers;
 
@@ -61,14 +60,21 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
   // the bot goes without a goodbye: it tells the Doom server that the bot
   // left, before the others wait 10 s for the bot to time out.
   const peerId = newPeerId();
-  const will = { topic: topics.packet(game.id, SERVER_ID, peerId), payload: DISCONNECT };
-  const mqtt = await MqttClient.connect(broker, { will });
+  const will = { topic: topics.packet(game.id, SERVER_ID, peerId), payload: GOODBYE };
+  const mqtt = await MqttClient.connect(broker, { will, retry: RECONNECT_FOR });
   const { deliver, net } = network(mqtt, game.id, peerId);
   const over = Promise.withResolvers();
+  let hostLeft; // timer, from when the host's listing went away
   mqtt.onclose = () => over.reject(new Error("Lost connection to the broker"));
+  mqtt.ondrop = () => say("Lost the broker, trying to get back");
+  mqtt.onreconnect = () => say("Back on the broker");
   mqtt.onmessage = (topic, payload) => {
-    // The host clears its listing as it leaves
-    if (topic === topics.listing(game.id) && !parseListing(payload)) over.resolve(0);
+    if (topic === topics.listing(game.id)) {
+      // The host clears its listing as it leaves. So does a broker that
+      // restarts, with the host's last will, and then the host puts it back.
+      clearTimeout(hostLeft);
+      if (!parseListing(payload)) hostLeft = setTimeout(over.resolve, HOST_TIMEOUT, 0);
+    }
     deliver(topic, payload);
   };
   await mqtt.subscribe(topics.inbox(game.id, peerId));
