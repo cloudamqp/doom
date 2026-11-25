@@ -3,7 +3,7 @@
 
 import { MqttClient } from "../web/js/mqtt.js";
 import { gunzip } from "../web/js/gzip.js";
-import { SERVER_ID, newPeerId, parseListing, topics } from "../web/js/protocol.js";
+import { SERVER_ID, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
@@ -36,6 +36,8 @@ async function find(broker, wanted) {
     const fetched = new Promise((resolve) => saves.set(topic, resolve));
     await mqtt.subscribe(topic);
     game.save = await gunzip(await fetched);
+    // Anyone can publish a save, see web/js/play.js
+    if (!saveMatches(game.save, game, game.maxPlayers)) throw new Error("The saved game is damaged");
   }
   mqtt.onclose = () => {};
   mqtt.close();

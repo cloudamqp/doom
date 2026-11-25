@@ -15,6 +15,7 @@ import {
   parseListing,
   parseSave,
   readSaveHeader,
+  saveMatches,
   setStatus,
   settingsFromQuery,
   topics,
@@ -97,10 +98,13 @@ function receive(topic, payload) {
   }
 }
 
-const unpack = (data) =>
-  gunzip(data).catch(() => {
-    throw new Error("The saved game is damaged.");
-  });
+// The savegame of a game as described, with that many players. Anyone can
+// publish one, so it isn't taken for more than it is.
+async function unpack(data, game, players) {
+  const save = await gunzip(data).catch(() => null);
+  if (!save || !saveMatches(save, game, players)) throw new Error("The saved game is damaged.");
+  return save;
+}
 
 // The retained message on a topic, or null if there is none
 function retained(mqtt, topic, timeout = 5_000) {
@@ -130,7 +134,7 @@ async function host(mqtt) {
     ]);
     const save = summary && parseSave(summary);
     if (!save || !data) throw new Error("The saved game is gone.");
-    files[RESUME_FILE] = await unpack(data);
+    files[RESUME_FILE] = await unpack(data, save, save.players);
     const { title, mode, skill, map, monsters, spectators = true, players } = save;
     settings = { title, mode, skill, map, monsters, spectators };
     maxPlayers = players;
@@ -200,7 +204,7 @@ async function guest(mqtt) {
   if (game.resumedFrom) {
     const data = await retained(mqtt, topics.saveData(game.resumedFrom));
     if (!data) throw new Error("The saved game is gone.");
-    files[RESUME_FILE] = await unpack(data);
+    files[RESUME_FILE] = await unpack(data, game, game.maxPlayers);
   }
   if (spectating) {
     return {

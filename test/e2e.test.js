@@ -559,6 +559,11 @@ test("a save can't point Doom outside the game", async () => {
   assert.equal(await resumeDamaged((data) => (data[56] = 99)), "Bad savegame: player state 99");
 });
 
+test("a save for another game than the lobby says is refused", async () => {
+  // The header's map: E1M2, where the game was saved on E1M1
+  assert.equal(await resumeDamaged((data) => (data[42] = 2)), "The saved game is damaged.");
+});
+
 // A link to a real site with ?broker= would take players to anyone's broker
 test("an address only picks the broker where the config lets it", async () => {
   const visit = async (config) => {
