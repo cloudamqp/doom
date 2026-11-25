@@ -4,7 +4,7 @@
 // ?watch=<game> one of them.
 
 import { MqttClient } from "./mqtt.js";
-import { MODES, brokerUrl, isGameId, link, parseListing, parseWatch, setStatus, topics } from "./doomq.js";
+import { MODES, RECONNECT_FOR, brokerUrl, isGameId, link, parseListing, parseWatch, setStatus, topics } from "./doomq.js";
 import { downloads } from "./files.js";
 import { readMap } from "./wad.js";
 
@@ -266,8 +266,10 @@ if (only && !isGameId(only)) {
   $("#nothing").hidden = false;
 } else {
   try {
-    const mqtt = await MqttClient.connect(brokerUrl);
+    const mqtt = await MqttClient.connect(brokerUrl, { retry: RECONNECT_FOR });
     setStatus("Connected", true);
+    mqtt.ondrop = () => setStatus("Reconnecting…");
+    mqtt.onreconnect = () => setStatus("Connected", true);
     mqtt.onclose = () => setStatus("Disconnected from broker, reload to retry");
     mqtt.onmessage = (topic, payload) => {
       const [, kind, id] = topic.split("/");

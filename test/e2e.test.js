@@ -9,6 +9,7 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { MqttClient } from "../web/js/mqtt.js";
+import { cutConnections } from "./broker.js";
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:8080";
 const BROKER_URL = process.env.BROKER_URL ?? "ws://guest:guest@localhost:15672/mqtt";
@@ -235,6 +236,39 @@ test("a bot hosts a game that starts once its players are in", async (t) => {
   marvin.kill("SIGKILL");
   await lobby.waitForSelector(listing(title), { hidden: true });
   await guest.waitForSelector("#overlay:not([hidden])");
+});
+
+test("a game carries on when the broker restarts", async (t) => {
+  const [host, guest] = await Promise.all([player("Host"), player("Guest")]);
+  const title = `Restarted ${Date.now().toString(36)}`;
+  await createGame(host, title);
+  const marvin = bot("--name", "Marvin", new URL(host.url()).searchParams.get("game"));
+  t.after(() => marvin.kill());
+  await Promise.all([join(guest, title), waitForLine(marvin, "Joining")]);
+  await host.waitForFunction(() => document.querySelector("#details").textContent.includes("3/4 players"));
+  await launch(host);
+  await Promise.all([waitForLine(guest, "doom: 10,"), waitForLine(marvin, "Entering E1M1")]);
+  await sleep(1_000);
+
+  // As the broker does when it shuts down: every connection goes, and
+  // everyone's last will is said. The host's clears its listing, the
+  // guests' tell Doom that they left.
+  await cutConnections();
+  await waitForLine(marvin, "Back on the broker");
+  for (const page of [host, guest]) await page.waitForFunction(() => document.querySelector("#status").textContent === "Connected");
+
+  // All three still play: a guest gets moves at the game's pace again
+  const received = await countPackets(guest);
+  await sleep(3_000);
+  const packets = await received();
+  assert.ok(packets > 45, `the guest received ${packets} packets in 3 s`);
+  assert.ok(await guest.$eval("#overlay", (div) => div.hidden), await guest.$eval("#message", (p) => p.textContent));
+  assert.equal(marvin.exitCode, null);
+
+  // And the lobby lists the game again
+  const lobby = await player("Watcher");
+  const row = await lobby.waitForSelector(listing(title));
+  assert.match(await row.evaluate((tr) => tr.innerText), /3\/4\tWatch/);
 });
 
 test("a player who closes the tab doesn't stall the others", async () => {
