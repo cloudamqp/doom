@@ -559,6 +559,34 @@ test("a save can't point Doom outside the game", async () => {
   assert.equal(await resumeDamaged((data) => (data[56] = 99)), "Bad savegame: player state 99");
 });
 
+// A link to a real site with ?broker= would take players to anyone's broker
+test("an address only picks the broker where the config lets it", async () => {
+  const visit = async (config) => {
+    const context = await browser.createBrowserContext();
+    contexts.push(context);
+    const page = await context.newPage();
+    await page.setRequestInterception(true);
+    page.on("request", (request) =>
+      config && request.url().endsWith("/js/config.js")
+        ? request.respond({ contentType: "text/javascript", body: `export default ${JSON.stringify(config)};` })
+        : request.continue(),
+    );
+    await page.goto(`${WEB_URL}/index.html?broker=ws://localhost:9/mqtt`);
+    await page.waitForFunction(() => document.querySelector("#status").textContent !== "Connecting…");
+    return page;
+  };
+
+  // As written by bin/configure-broker.js and the Docker image
+  const real = await visit({ broker: BROKER_URL });
+  assert.equal(await real.$eval("#status", (status) => status.textContent), "Connected");
+  assert.equal(new URL(await real.$eval("#watch-all", (a) => a.href)).searchParams.get("broker"), null);
+
+  // The config in the repository, for development
+  const development = await visit();
+  assert.match(await development.$eval("#status", (status) => status.textContent), /Could not connect to ws:\/\/localhost:9\//);
+  assert.equal(new URL(await development.$eval("#watch-all", (a) => a.href)).searchParams.get("broker"), "ws://localhost:9/mqtt");
+});
+
 // Anyone can publish listings, also for games that don't exist
 test("a flood of listings doesn't grow the pages without end", async () => {
   const fake = { title: "Flood", host: "Nobody", mode: "coop", skill: 3, map: "E1M1", monsters: true, players: 1, maxPlayers: 4, state: "playing" };

@@ -162,6 +162,8 @@ Emscripten in `~/emsdk` unless `emcc` is already on `PATH`, as in the
 with `bin/bot.js --solo E1M3 --verbose`.
 
 Add `?broker=wss://user:pass@host/mqtt` to the lobby URL to use another broker.
+`brokerFromAddress` in `web/js/config.js` allows that. The config written for
+a real broker leaves it out, see below.
 
 ## Production
 
@@ -176,6 +178,9 @@ host it anywhere, or set the URL when the container starts with
 `Cache-Control: no-cache`: without it, browsers may mix cached files from
 an old deploy with new ones. The script expects the HTTP API at `https://host`
 for `amqps://` and `http://host:15672` for `amqp://`.
+
+Either way the config no longer lets `?broker=` in an address pick the
+broker: with it, a link to your site could take players to anyone's broker.
 
 Every player gets the credentials, so the setup limits what they allow:
 
