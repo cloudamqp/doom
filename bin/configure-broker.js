@@ -1,14 +1,22 @@
 #!/usr/bin/env node
-// Sets up a LavinMQ broker for DooMQ and points the web app at it:
+// Sets up LavinMQ brokers for DooMQ, one per region, and points the web app
+// at them:
 //
-//   node bin/configure-broker.js amqps://admin:secret@broker.example.com [config.js]
+//   node bin/configure-broker.js [<code>[:<name>]=]<amqp-url>... [config.js]
+//   node bin/configure-broker.js amqps://admin:secret@broker.example.com
+//   node bin/configure-broker.js ams:Amsterdam=amqps://admin:secret@ams.example.com syd:Sydney=amqps://admin:secret@syd.example.com
 //
-// Every run starts over: it deletes and recreates the doomq vhost, which
-// ends running games and clears saves, and sets the doomq user's password,
-// to $DOOMQ_PASSWORD or a new random one. Run it on a schedule to clear out
-// abuse. It then writes the wss:// URL with the credentials to
-// web/js/config.js. The HTTP API is expected on the broker's host:
-// https://host for amqps:// URLs, http://host:15672 for amqp:// ones.
+// A region goes by a code in addresses (?region=ams), the airport code of a
+// city nearby, and by its name in the lobby, which is the code unless
+// given. Players pick a region in the lobby, and start in the first. A
+// broker without a region goes by its host.
+//
+// Every run starts over: it deletes and recreates the doomq vhost on every
+// broker, which ends running games and clears saves, and sets the doomq
+// user's password, to $DOOMQ_PASSWORD or a new random one. Run it on a
+// schedule to clear out abuse. It then writes the wss:// URLs with the
+// credentials to web/js/config.js. The HTTP API is expected on the broker's
+// host: https://host for amqps:// URLs, http://host:15672 for amqp:// ones.
 
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -28,28 +36,15 @@ const TOPICS = {
   savedata: "doomq/savedata/+",
   watch: "doomq/watch/+",
 };
+// [<code>[:<name>]=]<amqp-url>
+const BROKER = /^(?:([^=:]+)(?::([^=]+))?=)?(amqps?:\/\/.+)$/;
 
-const [amqpUrl, configPath = fileURLToPath(new URL("../web/js/config.js", import.meta.url))] = process.argv.slice(2);
-if (!amqpUrl) {
-  console.error("usage: configure-broker.js <amqp-url> [config.js]");
+const args = process.argv.slice(2);
+const configPath = args.length && !BROKER.test(args.at(-1)) ? args.pop() : fileURLToPath(new URL("../web/js/config.js", import.meta.url));
+const brokers = args.map((arg) => arg.match(BROKER));
+if (!brokers.length || !brokers.every(Boolean)) {
+  console.error("usage: configure-broker.js [<code>[:<name>]=]<amqp-url>... [config.js]");
   process.exit(1);
-}
-
-const amqp = new URL(amqpUrl);
-const tls = amqp.protocol === "amqps:";
-const api = new URL(tls ? `https://${amqp.hostname}` : `http://${amqp.hostname}:15672`);
-const credentials = `${decodeURIComponent(amqp.username)}:${decodeURIComponent(amqp.password)}`;
-
-async function request(method, path, body) {
-  const response = await fetch(new URL(`/api/${path}`, api), {
-    method,
-    headers: {
-      authorization: `Basic ${Buffer.from(credentials).toString("base64")}`,
-      "content-type": "application/json",
-    },
-    body: body && JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`${method} /api/${path}: ${response.status} ${await response.text()}`);
 }
 
 process.on("uncaughtException", (error) => {
@@ -59,40 +54,76 @@ process.on("uncaughtException", (error) => {
 
 const password = process.env.DOOMQ_PASSWORD || randomBytes(18).toString("base64url");
 
-await request("DELETE", `vhosts/${VHOST}`).catch((error) => {
-  if (!error.message.includes(": 404 ")) throw error;
-});
-await request("PUT", `vhosts/${VHOST}`);
-await request("PUT", `vhost-limits/${VHOST}/max-connections`, { value: MAX_CONNECTIONS });
+// Returns the broker's wss:// URL for players, once it works
+async function configure(amqpUrl) {
+  const amqp = new URL(amqpUrl);
+  const tls = amqp.protocol === "amqps:";
+  const api = new URL(tls ? `https://${amqp.hostname}` : `http://${amqp.hostname}:15672`);
+  const credentials = `${decodeURIComponent(amqp.username)}:${decodeURIComponent(amqp.password)}`;
 
-await request("PUT", `users/${USER}`, { password, tags: "" });
-// MQTT connects with any permission on the vhost. With MQTT permission
-// checks enabled it also needs to read the mqtt.default exchange and write
-// to it and the mqtt.<client id> session queues. Nothing to configure, so
-// these credentials can't declare anything over AMQP.
-await request("PUT", `permissions/${VHOST}/${USER}`, { configure: "^$", write: "^mqtt\\.", read: "^mqtt\\.default$" });
+  async function request(method, path, body) {
+    const response = await fetch(new URL(`/api/${path}`, api), {
+      method,
+      headers: {
+        authorization: `Basic ${Buffer.from(credentials).toString("base64")}`,
+        "content-type": "application/json",
+      },
+      body: body && JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`${method} /api/${path}: ${response.status} ${await response.text()}`);
+  }
 
-// Every vhost starts with a group that allows every topic, swap its rule
-for (const [rule, pattern] of Object.entries(TOPICS)) {
-  await request("PUT", `mqtt/permission-groups/${VHOST}/default/rules/${rule}`, { pattern, read: true, write: true });
+  await request("DELETE", `vhosts/${VHOST}`).catch((error) => {
+    if (!error.message.includes(": 404 ")) throw error;
+  });
+  await request("PUT", `vhosts/${VHOST}`);
+  await request("PUT", `vhost-limits/${VHOST}/max-connections`, { value: MAX_CONNECTIONS });
+
+  await request("PUT", `users/${USER}`, { password, tags: "" });
+  // MQTT connects with any permission on the vhost. With MQTT permission
+  // checks enabled it also needs to read the mqtt.default exchange and write
+  // to it and the mqtt.<client id> session queues. Nothing to configure, so
+  // these credentials can't declare anything over AMQP.
+  await request("PUT", `permissions/${VHOST}/${USER}`, { configure: "^$", write: "^mqtt\\.", read: "^mqtt\\.default$" });
+
+  // Every vhost starts with a group that allows every topic, swap its rule
+  for (const [rule, pattern] of Object.entries(TOPICS)) {
+    await request("PUT", `mqtt/permission-groups/${VHOST}/default/rules/${rule}`, { pattern, read: true, write: true });
+  }
+  await request("DELETE", `mqtt/permission-groups/${VHOST}/default/rules/allow-all`);
+
+  // MQTT sessions are queues named mqtt.<client id>, the oldest messages
+  // go when a client falls behind
+  await request("PUT", `policies/${VHOST}/sessions`, {
+    pattern: "^mqtt\\.",
+    "apply-to": "queues",
+    definition: { "max-length-bytes": MAX_SESSION_BYTES },
+  });
+
+  const broker = new URL("/mqtt", api);
+  broker.protocol = tls ? "wss:" : "ws:";
+  broker.username = `${VHOST}:${USER}`; // LavinMQ picks the vhost from "vhost:user"
+  broker.password = password;
+
+  const mqtt = await MqttClient.connect(broker.href);
+  mqtt.close();
+  return broker;
 }
-await request("DELETE", `mqtt/permission-groups/${VHOST}/default/rules/allow-all`);
 
-// MQTT sessions are queues named mqtt.<client id>, the oldest messages
-// go when a client falls behind
-await request("PUT", `policies/${VHOST}/sessions`, {
-  pattern: "^mqtt\\.",
-  "apply-to": "queues",
-  definition: { "max-length-bytes": MAX_SESSION_BYTES },
-});
+// By region: the brokers' wss:// URLs, and the names the lobby shows
+const urls = [];
+const names = [];
+for (const [, given, name, amqpUrl] of brokers) {
+  const code = given ?? new URL(amqpUrl).hostname;
+  const broker = await configure(amqpUrl).catch((error) => {
+    error.message = `${code}: ${error.message}`;
+    throw error;
+  });
+  console.log(`${code}: ${broker.protocol}//${broker.username}@${broker.host}${broker.pathname} works`);
+  urls.push(`    ${JSON.stringify(code)}: ${JSON.stringify(broker.href)},`);
+  names.push(`    ${JSON.stringify(code)}: ${JSON.stringify(name ?? code)},`);
+}
 
-const broker = new URL("/mqtt", api);
-broker.protocol = tls ? "wss:" : "ws:";
-broker.username = `${VHOST}:${USER}`; // LavinMQ picks the vhost from "vhost:user"
-broker.password = password;
-
-const mqtt = await MqttClient.connect(broker.href);
-mqtt.close();
-
-await writeFile(configPath, `// Written by bin/configure-broker.js\nexport default {\n  broker: ${JSON.stringify(broker.href)},\n};\n`);
-console.log(`${broker.protocol}//${broker.username}@${broker.host}${broker.pathname} works, written to ${configPath}`);
+const config = `export default {\n  brokers: {\n${urls.join("\n")}\n  },\n  names: {\n${names.join("\n")}\n  },\n};\n`;
+await writeFile(configPath, `// Written by bin/configure-broker.js\n${config}`);
+console.log(`Written to ${configPath}`);

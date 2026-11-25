@@ -12,6 +12,9 @@ import {
   newGameId,
   parseListing,
   parseSave,
+  region,
+  regionName,
+  regions,
   setStatus,
   show,
   topics,
@@ -115,6 +118,16 @@ function render() {
 const name = $("#name");
 name.value = localStorage.getItem("doomq:name") ?? "";
 name.addEventListener("input", () => localStorage.setItem("doomq:name", name.value.trim()));
+
+// Each region's broker has games of its own: picking one opens its lobby,
+// and the next visit starts there
+const pick = $("#region");
+fillSelect(pick, regions.map((code) => [code, regionName(code)]), region);
+$("#regions").hidden = regions.length < 2;
+pick.addEventListener("change", () => {
+  localStorage.setItem("doomq:region", pick.value);
+  location.assign(link("./", { region: pick.value }));
+});
 
 const form = $("#create");
 const fields = form.elements;

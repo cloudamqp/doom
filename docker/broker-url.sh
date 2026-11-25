@@ -3,4 +3,4 @@
 set -eu
 
 [ -n "${BROKER_URL:-}" ] || exit 0
-printf 'export default { broker: "%s" };\n' "$BROKER_URL" > /usr/share/nginx/html/js/config.js
+printf 'export default { brokers: { default: "%s" } };\n' "$BROKER_URL" > /usr/share/nginx/html/js/config.js

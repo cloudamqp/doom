@@ -641,14 +641,57 @@ test("an address only picks the broker where the config lets it", async () => {
   };
 
   // As written by bin/configure-broker.js and the Docker image
-  const real = await visit({ broker: BROKER_URL });
+  const real = await visit({ brokers: { local: BROKER_URL } });
   assert.equal(await real.$eval("#status", (status) => status.textContent), "Connected");
   assert.equal(new URL(await real.$eval("#watch-all", (a) => a.href)).searchParams.get("broker"), null);
+  // One region, nothing to pick
+  assert.equal(await real.$eval("#regions", (label) => label.hidden), true);
+  assert.equal(new URL(await real.$eval("#watch-all", (a) => a.href)).searchParams.get("region"), null);
 
   // The config in the repository, for development
   const development = await visit();
   assert.match(await development.$eval("#status", (status) => status.textContent), /Could not connect to ws:\/\/localhost:9\//);
   assert.equal(new URL(await development.$eval("#watch-all", (a) => a.href)).searchParams.get("broker"), "ws://localhost:9/mqtt");
+});
+
+// Every region has a broker, and games, of its own
+test("the lobby picks a region, and its links keep to it", async () => {
+  const context = await browser.createBrowserContext();
+  contexts.push(context);
+  const page = await context.newPage();
+  // Sydney's broker doesn't answer, which tells the two apart
+  const config = { brokers: { ams: BROKER_URL, syd: "ws://localhost:9/mqtt" }, names: { ams: "Amsterdam", syd: "Sydney" } };
+  await page.setRequestInterception(true);
+  page.on("request", (request) =>
+    request.url().endsWith("/js/config.js")
+      ? request.respond({ contentType: "text/javascript", body: `export default ${JSON.stringify(config)};` })
+      : request.continue(),
+  );
+  const status = () => page.$eval("#status", (status) => status.textContent);
+  const regionOf = async (selector) => new URL(await page.$eval(selector, (a) => a.href)).searchParams.get("region");
+
+  // The first region to start with
+  await page.goto(`${WEB_URL}/index.html`);
+  await page.waitForFunction(() => document.querySelector("#status").textContent === "Connected");
+  assert.equal(await page.$eval("#regions", (label) => label.hidden), false);
+  assert.deepEqual(await page.$$eval("#region option", (options) => options.map((o) => `${o.value} ${o.textContent}`)), ["ams Amsterdam", "syd Sydney"]);
+  assert.equal(await page.$eval("#region", (select) => select.value), "ams");
+  assert.equal(await regionOf("#watch-all"), "ams");
+
+  // Picking another opens its lobby, on its broker
+  await Promise.all([page.waitForNavigation(), page.select("#region", "syd")]);
+  await page.waitForFunction(() => document.querySelector("#status").textContent !== "Connecting…");
+  assert.match(await status(), /Could not connect to ws:\/\/localhost:9\//);
+  assert.equal(new URL(page.url()).searchParams.get("region"), "syd");
+  assert.equal(await regionOf("#watch-all"), "syd");
+
+  // The next visit starts there, a link to a game in another region doesn't
+  await page.goto(`${WEB_URL}/index.html`);
+  await page.waitForFunction(() => document.querySelector("#region").value === "syd");
+  await page.goto(`${WEB_URL}/index.html?region=ams`);
+  await page.waitForFunction(() => document.querySelector("#status").textContent === "Connected");
+  await page.goto(`${WEB_URL}/index.html`);
+  await page.waitForFunction(() => document.querySelector("#region").value === "syd");
 });
 
 // Anyone can publish listings, also for games that don't exist

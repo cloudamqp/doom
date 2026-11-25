@@ -3,9 +3,15 @@
 
 import { isGameId } from "../web/js/protocol.js";
 
-// The page's broker is in its js/config.js, see web/js/config.js. It is
-// read as text, not run: it is someone else's code. The address may name
-// another broker (?broker=) where the config lets it, as for the page.
+// A region's code and its broker in config.js: syd: "wss://…", with or
+// without quotes around the code
+const BROKER = /(?:"([^"]+)"|'([^']+)'|([\w$]+))\s*:\s*[`"'](wss?:\/\/[^`"']+)[`"']/g;
+
+// The page's brokers, one per region, are in its js/config.js, see
+// web/js/config.js. It is read as text, not run: it is someone else's code.
+// The address picks the region by its code (?region=) as for the page,
+// else it's the first, and may name another broker (?broker=) where the
+// config lets it.
 async function brokerOf(page) {
   const config = new URL("js/config.js", page);
   const response = await fetch(config);
@@ -13,8 +19,9 @@ async function brokerOf(page) {
   const text = await response.text();
   const fromAddress = /brokerFromAddress:\s*true/.test(text) ? page.searchParams.get("broker") : null;
   if (fromAddress !== null) return fromAddress;
-  const [, broker] = text.match(/broker:\s*[`"']([^`"']+)[`"']/) ?? [];
-  if (!broker) throw new Error(`No broker in ${config}`);
+  const brokers = new Map([...text.matchAll(BROKER)].map(([, double, single, bare, url]) => [double ?? single ?? bare, url]));
+  if (!brokers.size) throw new Error(`No broker in ${config}`);
+  const broker = brokers.get(page.searchParams.get("region")) ?? [...brokers.values()][0];
   // The page's own host, for a broker next to the web server
   return broker.replace("${location.hostname}", page.hostname);
 }

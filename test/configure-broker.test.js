@@ -9,11 +9,17 @@ import { MqttClient } from "../web/js/mqtt.js";
 
 const AMQP_URL = process.env.AMQP_URL ?? "amqp://guest:guest@localhost";
 
-async function configure(env = {}) {
+// Resolves to what config.js gets: the brokers and their names, by region
+async function configureRegions(brokers, env = {}) {
   const config = join(await mkdtemp(join(tmpdir(), "doomq-")), "config.mjs");
-  await promisify(execFile)("node", ["bin/configure-broker.js", AMQP_URL, config], { env: { ...process.env, ...env } });
+  await promisify(execFile)("node", ["bin/configure-broker.js", ...brokers, config], { env: { ...process.env, ...env } });
   const { default: settings } = await import(config);
-  return settings.broker;
+  return settings;
+}
+
+// Resolves to the one broker's URL
+async function configure(env = {}) {
+  return Object.values((await configureRegions([AMQP_URL], env)).brokers)[0];
 }
 
 test("configures a doomq user that can play but not administer", async () => {
@@ -76,4 +82,17 @@ test("a scheduled run can keep the password", async () => {
   const second = await configure({ DOOMQ_PASSWORD: "rip-and-tear" });
   assert.equal(second, first);
   (await MqttClient.connect(second)).close();
+});
+
+test("every region gets its broker, in order, by its code, or its host", async () => {
+  const host = new URL(AMQP_URL).hostname;
+  const { brokers, names } = await configureRegions([`ams:Amsterdam=${AMQP_URL}`, `syd=${AMQP_URL}`, AMQP_URL], { DOOMQ_PASSWORD: "rip-and-tear" });
+  assert.deepEqual(Object.keys(brokers), ["ams", "syd", host]);
+  assert.deepEqual(names, { ams: "Amsterdam", syd: "syd", [host]: host });
+  // The same broker three times here, so each run recreated the vhost
+  for (const broker of Object.values(brokers)) (await MqttClient.connect(broker)).close();
+});
+
+test("refuses what isn't a broker", async () => {
+  await assert.rejects(configureRegions(["ams:Amsterdam=https://broker.example"]), /usage: configure-broker.js/);
 });

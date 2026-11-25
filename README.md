@@ -36,6 +36,17 @@ their tab.
 
 `web/js/mqtt.js` is a small MQTT 3.1.1 client with just what this needs.
 
+### Regions
+
+Every player's packets go through the broker, so a game plays best on a
+broker near its players. `web/js/config.js` can list a broker per region,
+each with games and saves of its own. A region goes by the airport code of a
+city nearby in addresses, and by its name in the lobby. The lobby offers the
+regions when there is more than one: players start in the first, or in the
+one they picked last, and a game's address carries its region
+(`?region=ams`), so everyone who follows it gets to the same broker. Bots go
+by the address too.
+
 ### When the broker restarts
 
 A game carries on, if the broker is back within 8 seconds: Doom drops a peer
@@ -192,8 +203,13 @@ Set up the broker with an administrator's AMQP URL:
 
     node bin/configure-broker.js amqps://admin:secret@broker.example.com
 
-It writes the `wss://` URL for the web app to `web/js/config.js`, after
-checking that MQTT over WebSocket works with it. Then build the image and
+Or a broker per region, by its code and the name the lobby shows, the first
+where players start:
+
+    node bin/configure-broker.js ams:Amsterdam=amqps://admin:secret@ams.example.com syd:Sydney=amqps://admin:secret@syd.example.com
+
+It writes the `wss://` URLs for the web app to `web/js/config.js`, after
+checking that MQTT over WebSocket works with each. Then build the image and
 host it anywhere, or set the URL when the container starts with
 `-e BROKER_URL=wss://...`. Serving `web/` from another web server, send
 `Cache-Control: no-cache`: without it, browsers may mix cached files from
@@ -211,10 +227,10 @@ Every player gets the credentials, so the setup limits what they allow:
 - A policy that drops the oldest messages once 1 MB is queued for a client
   that stopped reading.
 
-Every run starts over: it deletes and recreates the vhost, which ends
-running games and clears all saves, along with anything someone stored
-there. Run it daily or weekly to clear out abuse, with `DOOMQ_PASSWORD` set
-so the web app's URL stays the same:
+Every run starts over: it deletes and recreates the vhost on every broker,
+which ends running games and clears all saves, along with anything someone
+stored there. Run it daily or weekly to clear out abuse, with
+`DOOMQ_PASSWORD` set so the web app's URLs stay the same:
 
     DOOMQ_PASSWORD=... node bin/configure-broker.js amqps://admin:secret@broker.example.com
 

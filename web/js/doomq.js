@@ -8,14 +8,24 @@ export * from "./protocol.js";
 
 const params = new URLSearchParams(location.search);
 
+// Every region has a broker, and games, of its own, see config.js. ?region=
+// picks one by its code and sticks to links, so a game's address takes
+// everyone to its broker. Without it, the region picked last in the lobby,
+// else the first.
+export const regions = Object.keys(config.brokers);
+const asked = params.get("region") ?? localStorage.getItem("doomq:region");
+export const region = regions.includes(asked) ? asked : regions[0];
+export const regionName = (code) => config.names?.[code] ?? code;
+
 // ?broker=wss://user:pass@host/mqtt overrides config.js where that allows
 // it, and sticks to links
 const brokerFromAddress = config.brokerFromAddress ? params.get("broker") : null;
-export const brokerUrl = brokerFromAddress ?? config.broker;
+export const brokerUrl = brokerFromAddress ?? config.brokers[region];
 
 export function link(path, query = {}) {
   const url = new URL(path, location.href);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  if (regions.length > 1 && !url.searchParams.has("region")) url.searchParams.set("region", region);
   if (brokerFromAddress !== null) url.searchParams.set("broker", brokerFromAddress);
   return url.href;
 }
