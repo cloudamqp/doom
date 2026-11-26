@@ -5,8 +5,18 @@ services:
     image: cloudamqp/lavinmq:2.11.1
     ports:
       - "15672:15672" # management UI and MQTT over WebSocket on /mqtt
+      - "1883:1883" # MQTT for the bots
 
   web:
     build: .
     ports:
       - "8080:80"
+
+  bots:
+    build:
+      context: .
+      target: bots
+    depends_on:
+      - lavinmq
+    restart: unless-stopped # the broker may not be up yet
+    command: ["mqtt://guest:guest@lavinmq:1883", "-arena", "2"]
