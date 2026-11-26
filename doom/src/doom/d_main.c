@@ -25,8 +25,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE
+
+// In doom/native/reload.c
+void Reload_Check(void);
+#endif
 
 #include "config.h"
 #include "debug.h"
@@ -417,6 +424,7 @@ EMSCRIPTEN_KEEPALIVE void D_RunFrame()
 //
 //  D_DoomLoop
 //
+#ifdef __EMSCRIPTEN__
 // Browsers stop requestAnimationFrame in hidden tabs and run their timers
 // about once a second, which would stall the lockstep game for every player.
 // Timers in workers keep their pace, so a worker runs the frames instead.
@@ -453,10 +461,13 @@ static bool D_VisibilityChanged(int type, const EmscriptenVisibilityChangeEvent 
     D_SetHidden(event->hidden);
     return true;
 }
+#endif
 
 void D_DoomLoop(void)
 {
+#ifdef __EMSCRIPTEN__
     EmscriptenVisibilityChangeEvent visibility;
+#endif
 
     if (gamevariant == bfgedition && (demorecording || (gameaction == ga_playdemo) || netgame)) {
         printf(" WARNING: You are playing using one of the Doom Classic\n"
@@ -467,12 +478,14 @@ void D_DoomLoop(void)
 
     if (demorecording) G_BeginRecording();
 
+#ifdef __EMSCRIPTEN__
     // this needs to be started before video initialization otherwise emscriptem will complaint with
     // "emscripten_set_main_loop_timing: Cannot set timing mode for main loop since a main loop does not exist!"
     // see https://emscripten.org/docs/api_reference/emscripten.h.html#c.emscripten_set_main_loop
     // and https://tristanpenman.com/blog/posts/2018/01/08/porting-an-asteroids-clone-to-javascript/#main-loop
     printf("Running emscripten_set_main_loop()\n");
     emscripten_set_main_loop(D_RunFrame, 0, 0);
+#endif
 
     main_loop_started = true;
 
@@ -482,10 +495,12 @@ void D_DoomLoop(void)
         I_SetGrabMouseCallback(D_GrabMouseCallback);
         I_InitGraphics();
 
+#ifdef __EMSCRIPTEN__
         emscripten_set_visibilitychange_callback(NULL, false, D_VisibilityChanged);
         if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS && visibility.hidden) {
             D_SetHidden(true);
         }
+#endif
         EnableLoadingDisk();
     }
 
@@ -499,6 +514,17 @@ void D_DoomLoop(void)
     if (testcontrols) {
         wipegamestate = gamestate;
     }
+
+#ifndef __EMSCRIPTEN__
+    // Nothing calls back natively: run the frames here. D_RunFrame returns
+    // at once when no tic is due, so sleep between them, except when every
+    // frame runs a tic (-timedemo)
+    while (true) {
+        D_RunFrame();
+        Reload_Check();
+        if (!singletics) I_Sleep(1);
+    }
+#endif
 }
 
 //

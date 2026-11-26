@@ -176,6 +176,111 @@ Alone, it leaves Freedoom's E1M1 after 37 seconds, and gets through five of the
 36 maps: E1M1, E1M2, E1M4, E1M8 and E3M1. On the others it runs out of ideas
 or of health, and is glad of human company.
 
+## Native bots
+
+There is a second bot, written in C inside Doom: Doom built as a plain
+program without screen, sound or Node (`doom/native/`, 800 KB, about 17 MB
+of memory), that plays deathmatches by itself and connects to the broker
+over TCP. It comes in five skills, and a service of them keeps the lobby
+populated. Host a game in the browser, then
+send a bot into its waiting room before you start it:
+
+    bin/native-bot.sh http://localhost:8080/?game=5f0c2a9be113&host   # or just the id
+    bin/native-bot.sh 5f0c2a9be113 5 Cyber                            # skill 1-5, name
+
+Or let bots join by themselves: the form for new games has Bots and Bot
+skill, and the host's listing in the lobby carries them. A bot service
+watches the lobby and sends that many bots into every waiting game that
+asks for them, each a process of its own. Start it next to the broker:
+
+    doom/build/native/doomq-bot -iwad web/freedoom1.wad -lobby -broker mqtt://user:pass@host:port
+
+It runs at most 16 bots at a time, 3 per game. Without it, the two fields
+do nothing. A bot leaves when the host does.
+
+With `-arena 2`, the service also keeps a game of 2 bots waiting in the
+lobby, the "Bot arena", so there is always someone to play with. It starts
+10 seconds after the first player joined, lasts 10 minutes or until the
+last player left, and the next one is put up as soon as it starts.
+`-arenaskill` sets the skill of its bots, 3 unless told. The levels are
+ones that the bots know well.
+
+A game that a bot hosts has spectators like any other: Spectate before it
+starts, to see it in Doom through a player's eyes, or Watch from above once
+it runs.
+
+`docker compose up` starts the service as `bots`. For a broker elsewhere,
+run its image on a machine close to the broker, since every packet of a bot
+goes through it:
+
+    docker build --target bots -t doomq-bots .
+    docker run -d --restart unless-stopped doomq-bots mqtts://user:pass@broker.example.com -arena 2
+
+The URL is the one in `web/js/config.js` with `mqtts://` for `wss://` and
+without `/mqtt`.
+
+Set `BROKER_URL=mqtt://user:pass@host:port` for another broker than the one
+of `docker compose`, or `mqtts://` for one with TLS, port 8883 unless told.
+Its certificate has to be one that the system trusts for that host name.
+The script builds the bot with `make -C doom native`, which needs a C
+compiler and OpenSSL (3 or newer, found with pkg-config), and
+`web/freedoom1.wad` from `bin/build.sh`.
+
+The bot (`doom/src/doom/b_native.c`) decides the player's input each tic in
+place of keyboard and mouse, the rest of the game is the same as in the
+browser, so the players stay in step. The same code is in the Wasm build,
+`-bot <skill>` turns it on.
+
+- It fights the players it sees, from within 1024 units: Doom aims up and
+  down by itself only that far.
+- Skill 1 to 5 sets how fast it turns, how soon it fires, how far off it
+  aims, and from 3 up whether it sidesteps. From 4 it picks its weapon for
+  the distance and aims rockets and plasma ahead of a moving player.
+- From skill 2, it goes for the weapons it has not got, and for health
+  when it is low.
+- With none in sight it goes to where it last saw one, and otherwise from
+  one deathmatch start to another.
+- It finds its way with the level's BSP tree: the leaves are areas without
+  walls inside, `b_map.c` works out where players can cross from one to the
+  next (doors, lifts, teleporters, steps of 24 units at most, room for a
+  player 32 wide), and `b_nav.c` finds the shortest route over them. When
+  floors and ceilings move, it works that out again.
+- A crossing that it got stuck at for 7 seconds is avoided from then on.
+
+It knows some levels better than others. Freedoom's levels are made for one
+player, with parts that open by switches the bot knows nothing of.
+`-routes` prints how many of the routes between deathmatch starts it finds:
+all of them on E3M4, E3M9, E4M6 and E4M8, most on E1M1, E1M5, E4M1 and
+E4M4, and few or none on a third of the levels. `-bottrace` prints what the
+bot is up to, once a second:
+
+    doom/build/native/doomq-bot -iwad web/freedoom1.wad -bot 3 -routes -bottrace -deathmatch -warp 3 4
+
+To work on the bot, let bots play each other in one process, without a
+network and as fast as it goes: `-sim` takes a skill for each, and a
+5 minute deathmatch is over in a quarter of a second. The same `-seed`
+gives the same game again.
+
+    doom/build/native/doomq-bot -iwad web/freedoom1.wad -sim 5,1 -seed 7 -simtime 300 -deathmatch -warp 3 4
+    doom: 16, player 1 skill 5 frags 70 deaths 10
+    doom: 16, player 2 skill 1 frags 10 deaths 70
+
+A bot can take on new code while it plays. Started with
+`-botlib doom/build/native/bot.so`, it plays with the bot in that library
+and loads it anew whenever the file changes: edit `b_*.c`, run
+`make -C doom botlib`, and the bots in a game have the change within a
+second. That is safe in the middle of a game, since a bot only makes its
+player's input. What it had in mind is gone with the old code, it finds its
+way around the level again. Changes to the rest of Doom need a new start.
+
+To see whether a change to the bot is for the better, make it depend on
+`bot->trial` and let a bot with it play one without, `-trial 1` or
+`-trial 2`, over many seeds and levels. Changes that looked right have lost
+that way, like fighting back at monsters.
+
+    make -C doom test    # unit tests of the bot's own logic
+    node --test test/native.test.js test/native-bot.test.js
+
 ## Development
 
     docker compose up -d lavinmq         # broker, MQTT over WebSocket on :15672

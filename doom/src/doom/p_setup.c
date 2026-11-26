@@ -22,6 +22,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "b_native.h"
 #include "z_zone.h"
 
 #include "deh_main.h"
@@ -862,6 +863,8 @@ P_SetupLevel
 	
     // build subsector connect matrix
     //	UNUSED P_ConnectSubsectors ();
+
+    b_api->LevelLoaded ();
 
     // preload graphics
     if (precache)

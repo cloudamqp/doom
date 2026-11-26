@@ -20,6 +20,8 @@
 
 
 // Data.
+#include <stdio.h>
+
 #include "doomdef.h"
 #include "dstrings.h"
 #include "sounds.h"
@@ -708,6 +710,12 @@ P_KillMobj
 	// count environment kills against you
 	if (!source)	
 	    target->player->frags[target->player-players]++;
+
+	// For whoever follows the game from outside. Players count from 1
+	// here, as in "player 1 of 2", and 0 is the level itself.
+	printf("doom: 14, player %d fragged player %d\n",
+	       source && source->player ? (int) (source->player - players) + 1 : 0,
+	       (int) (target->player - players) + 1);
 			
 	target->flags &= ~MF_SOLID;
 	target->player->playerstate = PST_DEAD;

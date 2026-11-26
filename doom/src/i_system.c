@@ -15,7 +15,9 @@
 // DESCRIPTION:
 //
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,10 +51,12 @@
 #include "z_zone.h"
 
 // Hands an error to the page, shutdown messages follow it on stderr
+#ifdef __EMSCRIPTEN__
 EM_JS_DEPS(i_error, "$UTF8ToString");
 EM_JS(void, JS_Error, (const char *message), {
     Module.onError?.(UTF8ToString(message));
 });
+#endif
 
 #define DEFAULT_RAM 16 /* MiB */
 #define MIN_RAM 4      /* MiB */
@@ -240,10 +244,14 @@ void I_Quit(void)
         entry = entry->next;
     }
 
+#ifdef __EMSCRIPTEN__
     SDL_Quit();
 
     emscripten_cancel_main_loop();
     emscripten_force_exit(0);
+#else
+    exit(0);
+#endif
 }
 
 //
@@ -259,8 +267,10 @@ void I_Error(const char *error, ...)
     atexit_listentry_t *entry;
     boolean exit_gui_popup;
 
+#ifdef __EMSCRIPTEN__
     // Stop the browser from calling into the dead game loop
     emscripten_cancel_main_loop();
+#endif
 
     if (already_quitting) {
         fprintf(stderr, "Warning: recursive call to I_Error detected.\n");
@@ -283,7 +293,9 @@ void I_Error(const char *error, ...)
     memset(msgbuf, 0, sizeof(msgbuf));
     M_vsnprintf(msgbuf, sizeof(msgbuf), error, argptr);
     va_end(argptr);
+#ifdef __EMSCRIPTEN__
     JS_Error(msgbuf);
+#endif
 
     // Shutdown. Here might be other errors.
 
@@ -308,13 +320,13 @@ void I_Error(const char *error, ...)
     // Pop up a GUI dialog box to show the error message, if the
     // game was not run from the console (and the user will
     // therefore be unable to otherwise see the message).
+#ifdef __EMSCRIPTEN__
     if (exit_gui_popup && !I_ConsoleStdout()) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, PACKAGE_STRING, msgbuf, NULL);
     }
 
-    // abort();
-
     SDL_Quit();
+#endif
 
     exit(-1);
 }

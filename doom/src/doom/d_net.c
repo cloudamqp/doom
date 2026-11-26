@@ -19,6 +19,7 @@
 
 #include <stdlib.h>
 
+#include "b_native.h"
 #include "d_main.h"
 #include "debug.h"
 #include "doomdef.h"
@@ -208,7 +209,15 @@ void D_ConnectNetGame(void)
     net_connect_data_t connect_data;
 
     InitConnectData(&connect_data);
-    netgame = D_InitNetGame(&connect_data);
+
+    // Bots that play each other in this process: a netgame without a
+    // network, and with a tic for every frame
+    if (b_api->SimPlayers() > 0) {
+        local_players = b_api->SimPlayers();
+        singletics = true;
+    }
+
+    netgame = D_InitNetGame(&connect_data) || local_players > 1;
 
     //!
     // @category net

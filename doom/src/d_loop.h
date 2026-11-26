@@ -75,6 +75,7 @@ void D_StartNetGame(net_gamesettings_t *settings,
                     netgame_startup_callback_t callback);
 
 extern boolean singletics;
+extern int local_players;
 extern int gametic, ticdup;
 
 // Check if it is permitted to record a demo with a non-vanilla feature.

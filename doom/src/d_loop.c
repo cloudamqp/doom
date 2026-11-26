@@ -19,8 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <emscripten.h>
-
 #include "d_event.h"
 #include "d_loop.h"
 #include "d_ticcmd.h"
@@ -76,6 +74,10 @@ int gametic;
 // This is used for -timedemo mode.
 
 boolean singletics = false;
+
+// How many players this process plays when it is not in a network game:
+// one, or with bots that play each other, the first few
+int local_players = 1;
 
 // Index of the local player.
 
@@ -136,6 +138,7 @@ static boolean BuildNewTic(void)
 {
     int gameticdiv;
     ticcmd_t cmd;
+    int i;
 
     gameticdiv = gametic / ticdup;
 
@@ -178,6 +181,10 @@ static boolean BuildNewTic(void)
 
     ticdata[maketic % BACKUPTICS].cmds[localplayer] = cmd;
     ticdata[maketic % BACKUPTICS].ingame[localplayer] = true;
+
+    for (i = 0; !net_client_connected && i < local_players; ++i) {
+        ticdata[maketic % BACKUPTICS].ingame[i] = true;
+    }
 
     ++maketic;
 
@@ -311,7 +318,7 @@ void D_StartNetGame(net_gamesettings_t *settings, netgame_startup_callback_t cal
     recvtic = 0;
 
     settings->consoleplayer = 0;
-    settings->num_players = 1;
+    settings->num_players = local_players;
     settings->player_classes[0] = player_class;
 
     //!
@@ -568,13 +575,13 @@ static void TicdupSquash(ticcmd_set_t *set)
 }
 
 // When running in single player mode, clear all the ingame[] array
-// except the local player.
+// except the local players.
 
 static void SinglePlayerClear(ticcmd_set_t *set)
 {
     unsigned int i;
 
-    for (i = 0; i < NET_MAXPLAYERS; ++i) {
+    for (i = local_players; i < NET_MAXPLAYERS; ++i) {
         if (i != localplayer) {
             set->ingame[i] = false;
         }
