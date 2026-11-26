@@ -76,6 +76,14 @@ lobby to the spectators with the MQTT messages each step sends.
 what DooMQ uses in MQTT and LavinMQ. Both show live counts from the lobby's
 retained messages.
 
+`web/flow.html`, also linked from the top of every page, shows the messages
+going through the broker as they go: a map of the broker with every game's
+players around it, dots on their way from publisher to subscriber, the rate
+of each kind of message over the last minute, each game's share, and the
+latest messages. It subscribes to every topic like one more client
+(`web/js/flow.js`), so it gets a copy of every Doom packet: each open page
+doubles what the broker sends for the games.
+
 Spectators watch games from above, one or all at once, with the scores
 (`?watch=<game>`, or `?watch=` for all). The host publishes where the players
 and monsters are to `doomq/watch/<game>` nine times a second, read from Doom

@@ -106,6 +106,10 @@ code {
   text-decoration-color: var(--fire);
 }
 
+.nav + .nav {
+  margin-left: 0;
+}
+
 #status {
   display: inline-flex;
   align-items: center;
@@ -1192,5 +1196,248 @@ footer a:hover {
 
   #status {
     margin-left: auto;
+  }
+}
+
+/* The message flow: what goes through the broker, live */
+
+.flow {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: clamp(24px, 6vh, 64px) var(--gutter) 72px;
+}
+
+.flow h1 {
+  margin: 0 0 20px;
+  color: var(--bone);
+  font: clamp(72px, 12vw, 128px) / 0.85 var(--pixel);
+}
+
+.flow > h2 {
+  margin: 56px 0 16px;
+  color: var(--bone);
+  font: 40px/1 var(--pixel);
+}
+
+.flow .lead {
+  max-width: 40rem;
+  margin: 0 0 32px;
+  font-size: clamp(20px, 2.2vw, 25px);
+  line-height: 1.3;
+}
+
+.flow .rate {
+  margin: 0 0 0 auto;
+  color: var(--smoke);
+  font-size: 15px;
+}
+
+.flow .rate strong {
+  color: var(--bone);
+  font: 28px/1 var(--pixel);
+  font-variant-numeric: tabular-nums;
+}
+
+#map {
+  display: block;
+  width: 100%;
+  height: 420px;
+}
+
+/* Kinds of messages, as on the map */
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+  padding: 14px 18px;
+  border-top: 1px solid var(--rim);
+  color: var(--dust);
+  font-size: 14px;
+  list-style: none;
+}
+
+.key [data-kind]::before,
+.kind h3::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--kind);
+}
+
+.key [data-kind="saves"]::before,
+.kind[data-kind="saves"] h3::before {
+  background: none;
+  box-shadow: inset 0 0 0 2px var(--kind);
+}
+
+.key .note {
+  margin-left: auto;
+  color: var(--smoke);
+}
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.kind {
+  padding: 16px 18px 14px;
+  background: var(--ash);
+  border: 1px solid var(--rim);
+  border-radius: 12px;
+}
+
+.kind h3 {
+  margin: 0 0 10px;
+  color: var(--dust);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.kind .value {
+  margin: 0;
+  color: var(--dust);
+  font-size: 15px;
+}
+
+.kind .value strong {
+  color: var(--bone);
+  font: 40px/1 var(--pixel);
+  font-variant-numeric: tabular-nums;
+}
+
+.kind .bytes {
+  margin: 4px 0 12px;
+  color: var(--smoke);
+  font-size: 14px;
+}
+
+.spark {
+  position: relative;
+  height: 44px;
+  margin-bottom: 10px;
+}
+
+.spark svg {
+  display: block;
+  width: 100%;
+  height: 44px;
+  overflow: visible;
+}
+
+.spark .line {
+  fill: none;
+  stroke: var(--kind);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark .area {
+  fill: var(--kind);
+  opacity: 0.1;
+}
+
+.spark .cross {
+  display: none;
+  stroke: var(--smoke);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark .tip {
+  position: absolute;
+  bottom: 100%;
+  padding: 4px 8px;
+  background: var(--night);
+  border: 1px solid var(--rim);
+  border-radius: 6px;
+  color: var(--bone);
+  font: 12px var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.kind code {
+  color: var(--smoke);
+  font-size: 12px;
+}
+
+.flow > .window + .window,
+.kinds + .window {
+  margin-top: 24px;
+}
+
+#flow-games td {
+  font-size: 15px;
+}
+
+#flow-games td:nth-child(n + 3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-games th:nth-child(n + 3) {
+  text-align: right;
+}
+
+.flow .empty {
+  margin: 0;
+  padding: 28px 18px;
+  color: var(--smoke);
+}
+
+.flow .empty a {
+  color: var(--bone);
+}
+
+#tail {
+  min-height: calc(14 * 1.8em + 36px);
+  margin: 0;
+}
+
+#tail div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#tail div::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--kind);
+  vertical-align: middle;
+}
+
+@media (max-width: 900px) {
+  .kinds {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Phones: the game, its players and its traffic, and topics before verbs */
+@media (max-width: 640px) {
+  .flow-games th,
+  #flow-games td {
+    padding: 12px 10px;
+  }
+
+  .flow-games th:nth-child(2),
+  #flow-games td:nth-child(2) {
+    display: none;
+  }
+
+  #tail b {
+    display: none;
   }
 }
