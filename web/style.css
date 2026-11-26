@@ -966,6 +966,135 @@ kbd {
   text-align: center;
 }
 
+/* A game on a phone or a tablet, see js/touch.js: Doom fills the screen,
+   and the controls lie over all of it */
+
+body:has(#game.touch:not([hidden])) > :is(.bar, footer),
+#game.touch :is(.titlebar, .keys) {
+  display: none;
+}
+
+#game.touch {
+  position: fixed;
+  inset: 0;
+  max-width: none;
+  padding: 0;
+  background: #000;
+}
+
+#game.touch .window {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+#game.touch .screen {
+  width: min(100vw, 100dvh * 4 / 3);
+  margin: 0 auto;
+}
+
+#game.touch #hint {
+  position: fixed;
+  inset: env(safe-area-inset-top) 0 auto;
+  margin: 6px 0;
+  font-size: 15px;
+  pointer-events: none;
+}
+
+#touch {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#touch button {
+  position: absolute;
+  right: calc(var(--right) + env(safe-area-inset-right));
+  bottom: calc(var(--bottom) + env(safe-area-inset-bottom));
+  display: grid;
+  place-items: center;
+  width: var(--size, 64px);
+  height: var(--size, 64px);
+  /* Browsers on phones pad buttons, which pushes the text aside */
+  padding: 0;
+  border: 2px solid rgb(247 245 242 / 0.5);
+  border-radius: 50%;
+  background: rgb(20 20 20 / 0.45);
+  color: var(--bone);
+  font: 18px/1 var(--pixel);
+}
+
+#touch .back {
+  position: absolute;
+  left: calc(12px + env(safe-area-inset-left));
+  top: calc(12px + env(safe-area-inset-top));
+  padding: 8px;
+  color: var(--smoke);
+  font-size: 15px;
+}
+
+#touch [data-action="fire"] {
+  --size: 88px;
+  --right: 20px;
+  --bottom: 28px;
+  border-color: var(--fire);
+}
+
+#touch [data-action="use"] {
+  --right: 120px;
+  --bottom: 20px;
+}
+
+#touch [data-action="weapon"] {
+  --size: 72px;
+  --right: 24px;
+  --bottom: 132px;
+}
+
+#touch :is([data-action="start"], [data-action="fullscreen"]) {
+  --right: 12px;
+  top: calc(12px + env(safe-area-inset-top));
+  bottom: auto;
+  width: auto;
+  height: auto;
+  padding: 8px 14px;
+  border-radius: 10px;
+}
+
+#touch [data-action="start"] {
+  right: auto;
+  left: 50%;
+  top: 40%;
+  translate: -50%;
+  padding: 14px 28px;
+  border-color: var(--fire);
+  font-size: 30px;
+}
+
+/* Where the thumb went down, and the knob where it is now */
+#touch .stick {
+  position: absolute;
+  width: 112px;
+  height: 112px;
+  margin: -56px;
+  border: 2px solid rgb(247 245 242 / 0.35);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+#touch .stick::after {
+  content: "";
+  position: absolute;
+  inset: 30px;
+  border-radius: 50%;
+  background: rgb(247 245 242 / 0.5);
+  translate: var(--x, 0) var(--y, 0);
+}
+
 #overlay {
   position: fixed;
   inset: 0;

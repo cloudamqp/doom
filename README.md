@@ -120,6 +120,19 @@ LAME.
 - A save has to be for the map, skill and number of players that the lobby
   showed for it, or it isn't loaded.
 
+## Phones and tablets
+
+On a touch screen Doom fills the screen and is played with the thumbs: the
+left half is a stick to move, a drag anywhere else turns, and there are
+buttons to fire, use and change weapon. A thumb on Fire aims too. The host
+starts the game with Start, in place of Space.
+
+The screen answers Doom with the player's moves each tic, as a bot does
+(`web/js/touch.js`), so nothing pretends to be a keyboard or a mouse. The
+page keeps the screen awake. Fullscreen is offered where the browser has
+it. iPhones don't: there, add the page to the home screen to lose the
+browser around it.
+
 ## Bots
 
     bin/bot.js http://localhost:8080/           # joins the first game that waits for players
