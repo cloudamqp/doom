@@ -353,14 +353,17 @@ Every player gets the credentials, so the setup limits what they allow:
 - A policy that drops the oldest messages once 1 MB is queued for a client
   that stopped reading.
 
-Every run starts over: it deletes and recreates the vhost on every broker,
+Every run sets this up in place: running games and saves stay. Without
+`DOOMQ_PASSWORD`, it also sets a new random password, so give it the same
+one on every run to keep the web app's URLs the same.
+
+`--reset` starts over: it deletes and recreates the vhost on every broker,
 which ends running games and clears all saves, along with anything someone
-stored there. Run it daily or weekly to clear out abuse, with
-`DOOMQ_PASSWORD` set so the web app's URLs stay the same:
+stored there. Run it daily or weekly to clear out abuse:
 
-    DOOMQ_PASSWORD=... node bin/configure-broker.js amqps://admin:secret@broker.example.com
+    DOOMQ_PASSWORD=... node bin/configure-broker.js --reset amqps://admin:secret@broker.example.com
 
-LavinMQ has no limit on retained messages, so between runs, someone with the
+LavinMQ has no limit on retained messages, so between resets, someone with the
 credentials can fill the disk with retained messages on topics like
 `doomq/saves/<anything>`. Two broker settings bound that:
 
@@ -372,7 +375,7 @@ credentials can fill the disk with retained messages on topics like
 They can also publish listings and saves for games that don't exist. The
 pages keep track of 100 games and 100 saves, and show 24 games to spectators
 at once, so a flood of them doesn't grow a player's tab without end. It still
-hides the real games until the next run.
+hides the real games until the next reset.
 
 ## Limitations
 
