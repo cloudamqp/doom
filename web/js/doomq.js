@@ -2,7 +2,7 @@
 // them. protocol.js has what they share with every other peer.
 
 import config from "./config.js";
-import { MAPS, MODES } from "./protocol.js";
+import { BOTS, BOT_SKILLS, MAPS, MODES } from "./protocol.js";
 
 export * from "./protocol.js";
 
@@ -60,6 +60,8 @@ export function settingsFromQuery(query) {
     skill: skill >= 1 && skill <= 5 ? skill : 3,
     map: MAPS.includes(map) ? map : "E1M1",
     monsters: query.get("monsters") !== "0",
+    bots: BOTS.includes(Number(query.get("bots"))) ? Number(query.get("bots")) : 0,
+    botSkill: BOT_SKILLS[Number(query.get("botskill")) - 1] ? Number(query.get("botskill")) : 3,
     spectators: query.get("spectators") !== "0",
   };
 }

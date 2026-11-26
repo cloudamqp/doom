@@ -1,5 +1,7 @@
 import { MqttClient } from "./mqtt.js";
 import {
+  BOTS,
+  BOT_SKILLS,
   MAPS,
   MAX_GAMES,
   MODES,
@@ -134,6 +136,8 @@ const fields = form.elements;
 fillSelect(fields.mode, Object.entries(MODES), "deathmatch");
 fillSelect(fields.skill, SKILLS.map((label, i) => [i + 1, label]), 3);
 fillSelect(fields.map, MAPS.map((m) => [m, m]), "E1M1");
+fillSelect(fields.bots, BOTS.map((n) => [n, n === 0 ? "None" : n]), 0);
+fillSelect(fields.botskill, BOT_SKILLS.map((label, i) => [i + 1, label]), 3);
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   open(link("./", {
@@ -144,6 +148,8 @@ form.addEventListener("submit", (event) => {
     skill: fields.skill.value,
     map: fields.map.value,
     monsters: fields.monsters.checked ? 1 : 0,
+    bots: fields.bots.value,
+    botskill: fields.botskill.value,
     spectators: fields.spectators.checked ? 1 : 0,
   }));
 });
