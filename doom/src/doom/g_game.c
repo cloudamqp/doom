@@ -666,8 +666,12 @@ static void SetMouseButtons(unsigned int buttons_mask)
 }
 
 // A spectator (drone) is told whom it watches, in the game and on the page
+#ifdef __EMSCRIPTEN__
 EM_JS_DEPS(g_game, "$UTF8ToString");
 EM_JS(void, JS_Watching, (const char *name), { Module.onWatching?.(UTF8ToString(name)); });
+#else
+static void JS_Watching(const char *name) { (void) name; }
+#endif
 
 static void G_Watching(void)
 {
