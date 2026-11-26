@@ -45,6 +45,10 @@ export const topics = {
 
 export const MODES = { coop: "Co-op", deathmatch: "Deathmatch", altdeath: "Deathmatch 2.0" };
 export const SKILLS = ["I'm too young to die", "Hey, not too rough", "Hurt me plenty", "Ultra-Violence", "Nightmare!"];
+// Bots are players of their own that a bot service sends into games whose
+// listing asks for them, see doom/native/lobby.c
+export const BOTS = [0, 1, 2, 3];
+export const BOT_SKILLS = ["Clumsy", "Slow", "Decent", "Sharp", "Ruthless"];
 export const MAPS = [1, 2, 3, 4].flatMap((e) => Array.from({ length: 9 }, (_, m) => `E${e}M${m + 1}`));
 
 // Anyone can publish listings and saves, also for games that don't exist:
