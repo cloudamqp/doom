@@ -35,12 +35,21 @@
 
 void D_DoomMain (void);
 
+// In doom/native/lobby.c
+void Lobby_Run(void);
+
 int main(int argc, char **argv)
 {
     // save arguments
 
     myargc = argc;
     myargv = argv;
+
+#ifndef __EMSCRIPTEN__
+    // Whoever runs this follows the "doom: <code>, <text>" lines on stdout,
+    // also when it is a pipe or a file
+    setvbuf(stdout, NULL, _IOLBF, 0);
+#endif
 
     //!
     // Print the program version and exit.
@@ -62,6 +71,17 @@ int main(int argc, char **argv)
     #ifdef SDL_HINT_NO_SIGNAL_HANDLERS
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
     #endif
+
+#ifndef __EMSCRIPTEN__
+    //!
+    // @category net
+    //
+    // Send bots into the games of the lobby that ask for them.
+    //
+    if (M_ParmExists("-lobby")) {
+        Lobby_Run();
+    }
+#endif
 
     // start doom
 

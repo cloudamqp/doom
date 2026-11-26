@@ -17,13 +17,12 @@
 //
 //     The MQTT connection lives in JavaScript (web/js/play.js exposes it
 //     as Module.net); this module only moves packets across the Wasm
-//     boundary. Peers are addressed by numeric ids, the server is id 1.
+//     boundary. The native build has its own, see native/broker.c.
+//     Peers are addressed by numeric ids, the server is id 1.
 //
 
 #include <stdlib.h>
 #include <string.h>
-
-#include <emscripten.h>
 
 #include "m_misc.h"
 #include "net_defs.h"
@@ -44,18 +43,22 @@ typedef struct
 
 static peer_t peers[MAX_PEERS];
 
-EM_JS(int, JS_Connected, (void), {
+#ifdef __EMSCRIPTEN__
+
+#include <emscripten.h>
+
+EM_JS(int, Broker_Connected, (void), {
     return Module.net.connected() ? 1 : 0;
 });
 
 // Wasm passes uint32_t as a signed i32, >>> 0 makes it unsigned again
-EM_JS(void, JS_Send, (uint32_t to, const byte *data, int len), {
+EM_JS(void, Broker_Send, (uint32_t to, const byte *data, int len), {
     Module.net.send(to >>> 0, HEAPU8.slice(data, data + len));
 });
 
 // Copies the next queued packet into buf and returns its length,
 // or -1 when the queue is empty. Oversized packets are dropped.
-EM_JS(int, JS_Recv, (uint32_t *from, byte *buf, int size), {
+EM_JS(int, Broker_Recv, (uint32_t *from, byte *buf, int size), {
     for (let packet; (packet = Module.net.recv());) {
         if (packet.data.length > size) continue;
         HEAPU8.set(packet.data, buf);
@@ -64,6 +67,14 @@ EM_JS(int, JS_Recv, (uint32_t *from, byte *buf, int size), {
     }
     return -1;
 });
+
+#else
+
+boolean Broker_Connected(void);
+void Broker_Send(uint32_t to, const byte *data, int len);
+int Broker_Recv(uint32_t *from, byte *buf, int size);
+
+#endif
 
 static uint32_t PeerId(net_addr_t *addr)
 {
@@ -107,12 +118,12 @@ static net_addr_t *FindAddress(uint32_t id)
 
 static boolean NET_MQTT_Init(void)
 {
-    return JS_Connected();
+    return Broker_Connected();
 }
 
 static void NET_MQTT_SendPacket(net_addr_t *addr, net_packet_t *packet)
 {
-    JS_Send(PeerId(addr), packet->data, packet->len);
+    Broker_Send(PeerId(addr), packet->data, packet->len);
 }
 
 static boolean NET_MQTT_RecvPacket(net_addr_t **addr, net_packet_t **packet)
@@ -121,7 +132,7 @@ static boolean NET_MQTT_RecvPacket(net_addr_t **addr, net_packet_t **packet)
     uint32_t from;
     int len;
 
-    while ((len = JS_Recv(&from, buf, sizeof(buf))) >= 0)
+    while ((len = Broker_Recv(&from, buf, sizeof(buf))) >= 0)
     {
         *addr = FindAddress(from);
 

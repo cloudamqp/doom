@@ -15,8 +15,12 @@
 // DESCRIPTION:  none
 //
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE
+#endif
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +32,8 @@
 #include "deh_main.h"
 #include "deh_misc.h"
 
+#include "b_native.h"
+#include "net_client.h"
 #include "f_finale.h"
 #include "i_input.h"
 #include "i_swap.h"
@@ -310,6 +316,13 @@ void G_BuildTiccmd(ticcmd_t *cmd, int maketic)
 
     cmd->consistancy = consistancy[consoleplayer][maketic % BACKUPTICS];
 
+    if (b_api->Active()) {
+        // With -sim, the commands of all players are made when their
+        // tic runs, see G_Ticker
+        if (b_api->SimPlayers() == 0) b_api->BuildTiccmd(cmd, maketic);
+        return;
+    }
+
     strafe =
         gamekeydown[key_strafe] || gamekeydown[key_strafe_alt] || mousebuttons[mousebstrafe] || joybuttons[joybstrafe];
 
@@ -379,6 +392,7 @@ void G_BuildTiccmd(ticcmd_t *cmd, int maketic)
         side += sidemove[speed];
     }
 
+#ifdef __EMSCRIPTEN__
     // fullscreen
     if (gamekeydown[key_fullscreen]) {
         EmscriptenFullscreenChangeEvent fsce;
@@ -390,6 +404,7 @@ void G_BuildTiccmd(ticcmd_t *cmd, int maketic)
         // Once per key press, without sleeping in the frame
         gamekeydown[key_fullscreen] = false;
     }
+#endif
 
     // buttons
     cmd->chatchar = HU_dequeueChatChar();
@@ -841,6 +856,11 @@ void G_Ticker(void)
             cmd = &players[i].cmd;
 
             memcpy(cmd, &netcmds[i], sizeof(ticcmd_t));
+
+            if (b_api->SimPlayers() > 0) {
+                b_api->Simulate(i, cmd);
+                cmd->consistancy = consistancy[i][buf];
+            }
 
             if (demoplayback) G_ReadDemoTiccmd(cmd);
             if (demorecording) G_WriteDemoTiccmd(cmd);

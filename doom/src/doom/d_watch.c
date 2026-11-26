@@ -1,10 +1,15 @@
 //
 // What spectators see: where the players and monsters are, and the scores.
 // A few times a second the page gets it, and the host publishes it, see
-// web/js/play.js and web/js/watch.js.
+// web/js/play.js and web/js/watch.js. A native host publishes it itself,
+// see native/broker.c.
 //
 
+#ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#else
+#include "broker.h"
+#endif
 
 #include "d_watch.h"
 #include "doomstat.h"
@@ -16,6 +21,7 @@
 #define MAX_MONSTERS 1024
 #define FIELDS 9          // per player, as read below
 
+#ifdef __EMSCRIPTEN__
 EM_JS_DEPS(d_watch, "$UTF8ToString");
 EM_JS(void, JS_Watch, (const int *numbers, int player_count, int fields, const char *names, int name_size, const int *monsters, int monster_count), {
     if (!Module.onWatch) return;
@@ -38,6 +44,9 @@ EM_JS(void, JS_Watch, (const int *numbers, int player_count, int fields, const c
     if (monsters) watch.monsters = Array.from(HEAP32.subarray(monsters >> 2, (monsters >> 2) + 2 * monster_count));
     Module.onWatch(watch);
 });
+#else
+#define JS_Watch Broker_Watch
+#endif
 
 // Frags as the status bar counts them: others fragged, less suicides
 static int Frags(const player_t *player, int number)
