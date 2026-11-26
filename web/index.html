@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- From the home screen of a phone, the page opens without the browser around it -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#141414" />
     <title>DooMQ</title>
     <meta name="description" content="Doom multiplayer in the browser, every move an MQTT message through LavinMQ." />
@@ -152,6 +155,16 @@
             <progress></progress>
           </div>
         </div>
+      </div>
+      <!-- On phones and tablets, see js/touch.js. The left half is the stick. -->
+      <div id="touch" hidden>
+        <span class="stick" hidden></span>
+        <a class="back" href="./">Leave</a>
+        <button type="button" data-action="fullscreen">Fullscreen</button>
+        <button type="button" data-action="start" hidden>Start</button>
+        <button type="button" data-action="weapon">Weapon</button>
+        <button type="button" data-action="use">Use</button>
+        <button type="button" data-action="fire">Fire</button>
       </div>
       <p id="hint"></p>
       <p class="keys">

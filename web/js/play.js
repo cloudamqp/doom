@@ -29,6 +29,7 @@ import { burn } from "./fire.js";
 import { GOODBYE, holdGoodbyes } from "./goodbyes.js";
 import { gunzip, gzip } from "./gzip.js";
 import { stopMusic } from "./music.js";
+import { onTouchScreen, touchControls } from "./touch.js";
 
 // Doom peers send a keepalive at least every 2 s
 const PRESENCE_WINDOW = 5_000;
@@ -250,6 +251,11 @@ function storeSettings(FS) {
 
 function startDoom(mqtt, role, { js, wasm, wad }) {
   let running = false;
+  // On a phone the player's moves come from the screen, see touch.js
+  const touch = !spectating && onTouchScreen() ? touchControls($("#touch"), () => window.Module) : undefined;
+  $("#game").classList.toggle("touch", Boolean(touch));
+  // Doom's waiting room starts the game with Space
+  $("#touch [data-action=start]").hidden = !hosting;
   const saveSettings = () => {
     if (!running) return; // before Doom has read them, this would reset them
     Module._M_SaveDefaults();
@@ -257,7 +263,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
   };
   addEventListener("visibilitychange", () => document.hidden && saveSettings());
   addEventListener("pagehide", saveSettings);
-  $("#hint").textContent = role.hint;
+  $("#hint").textContent = touch && hosting ? "Tap Start once everyone has joined." : role.hint;
   loading("Starting Doom…");
 
   window.Module = {
@@ -266,6 +272,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       ...["-window", "-nogui", "-pet", playerName, ...role.args],
     ],
     canvas: $("#canvas"),
+    bot: touch,
     onWatch: role.onWatch,
     // Whom a spectator watches, see G_Watching in doom/src/doom/g_game.c
     onWatching: spectating ? (name) => ($("#hint").textContent = `Watching ${name}.`) : undefined,
@@ -291,6 +298,7 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       if (line.startsWith("doom: 10,")) {
         running = true;
         stopMusic(); // Doom plays its own
+        $("#touch [data-action=start]").hidden = true;
         $("#hint").textContent = role.playingHint ?? "";
         $("#hint").hidden = !role.playingHint;
         role.started?.();

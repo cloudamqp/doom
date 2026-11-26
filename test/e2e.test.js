@@ -3,7 +3,7 @@
 // The hidden tab test also needs a display: xvfb-run npm test
 import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
-import puppeteer from "puppeteer";
+import puppeteer, { KnownDevices } from "puppeteer";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
@@ -271,6 +271,36 @@ test("a game carries on when the broker restarts", async (t) => {
   const lobby = await player("Watcher");
   const row = await lobby.waitForSelector(listing(title));
   assert.match(await row.evaluate((tr) => tr.innerText), /3\/8\tWatch/);
+});
+
+test("a phone plays with the stick and the buttons on its screen", async () => {
+  const phone = await player("Phone");
+  await phone.emulate(KnownDevices["iPhone 13 landscape"]);
+  await createGame(phone, `Phone ${Date.now().toString(36)}`);
+  await waitForLine(phone, "NET_Init:");
+
+  // No keyboard for the waiting room's Space
+  for (let tries = 0; !phone.lines.some((line) => line.startsWith("doom: 10,")); tries++) {
+    assert.ok(tries < 60, `the game did not start:\n${phone.lines.join("\n")}`);
+    await phone.tap("#touch [data-action=start]");
+    await sleep(250);
+  }
+
+  // What spectators see tells where the player is
+  await phone.evaluate(() => (Module.onWatch = (watch) => (window.marine = watch.players[0])));
+  const marine = async () => (await phone.waitForFunction(() => window.marine)).jsonValue();
+  const before = await marine();
+
+  // The left thumb pushes the stick up, the right one drags across
+  const [left, right] = [await phone.touchscreen.touchStart(150, 250), await phone.touchscreen.touchStart(600, 200)];
+  await left.move(150, 150);
+  for (let x = 600; x <= 700; x += 10) await right.move(x, 200);
+  await sleep(1_000);
+  await Promise.all([left.end(), right.end()]);
+  const after = await marine();
+
+  assert.notDeepEqual([after.x, after.y], [before.x, before.y], "the stick moves the player");
+  assert.notEqual(after.angle, before.angle, "the drag turns the player");
 });
 
 test("a player who closes the tab doesn't stall the others", async () => {
