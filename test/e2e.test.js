@@ -579,6 +579,32 @@ test("the pages about DooMQ count what's on the broker", async () => {
   }
 });
 
+test("the message flow page shows a game's messages", async () => {
+  const [host, guest] = await Promise.all([player("Hanna"), player("Ozzy")]);
+  const title = `Flowing ${Date.now().toString(36)}`;
+  await startGame(host, guest, title);
+
+  const context = await browser.createBrowserContext();
+  contexts.push(context);
+  const reader = await context.newPage();
+  await reader.goto(`${WEB_URL}/index.html`);
+  await Promise.all([reader.waitForNavigation(), reader.click(".bar a.nav[href$='flow.html']")]);
+  assert.equal(new URL(reader.url()).pathname, "/flow.html");
+
+  // The host sends a packet a tic and the guest one back: about 70 a second
+  await reader.waitForFunction(
+    (title) => {
+      const row = [...document.querySelectorAll("#flow-games tr")].find((tr) => tr.cells[0].textContent.startsWith(title));
+      return row && Number(row.cells[3].textContent.replace(/\D/g, "")) > 50;
+    },
+    {},
+    title,
+  );
+  const tile = await reader.$eval('.kind[data-kind="packets"]', (tile) => tile.innerText);
+  assert.match(tile, /^Doom packets\s+\d+ a second\s/);
+  assert.match(await reader.$eval("#tail", (pre) => pre.textContent), /PUBLISH {2}doomq\/games\/[0-9a-f]{12}\/\d+\/\d+ {2}\d+ B {2}game data/);
+});
+
 test("a saved game can be resumed", async () => {
   const [host, guest, lobby] = await Promise.all([player("Hanna"), player("Gus"), player("Lou")]);
   const title = `Saved ${Date.now().toString(36)}`;

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#141414" />
+    <title>Message flow · DooMQ</title>
+    <meta name="description" content="Every message DooMQ's games send through LavinMQ, live: Doom packets, lobby listings, spectator snapshots and saves." />
+    <!-- How a link to the page shows in Slack and the like -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DooMQ" />
+    <meta property="og:title" content="Message flow · DooMQ" />
+    <meta property="og:description" content="Every message DooMQ's games send through LavinMQ, live: Doom packets, lobby listings, spectator snapshots and saves." />
+    <meta property="og:url" content="https://doom.lavinmq.com/flow.html" />
+    <meta property="og:image" content="https://doom.lavinmq.com/img/preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="DooMQ in pixels, standing in Doom's fire" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="img/lavinmq.svg" />
+    <link rel="preload" href="fonts/jersey-10.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="js/flow.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <a class="brand back" href="./">DooMQ</a>
+      <a class="broker" href="https://lavinmq.com">brokered by <img src="img/lavinmq.svg" alt="" width="20" height="20" /> LavinMQ</a>
+      <a class="nav" href="how.html">How it works</a>
+      <a class="nav" href="flow.html" aria-current="page">Message flow</a>
+      <span id="status">Connecting…</span>
+    </header>
+
+    <main class="flow">
+      <h1>Message flow</h1>
+      <p class="lead">
+        Every message the games send goes through LavinMQ. This page subscribes to all of them, like one more player,
+        and shows them on their way.
+      </p>
+
+      <section class="window" aria-labelledby="broker-name">
+        <div class="titlebar">
+          <span class="lights" aria-hidden="true"></span>
+          <h2 id="broker-name">LavinMQ</h2>
+          <p class="rate"><strong id="rate">0</strong> messages a second<span id="volume"></span></p>
+        </div>
+        <canvas id="map" role="img" aria-label="Messages on their way from the players, through the broker, to the players, the lobby, spectators and saves"></canvas>
+        <ul class="key" aria-label="Kinds of messages">
+          <li data-kind="packets">Doom packets</li>
+          <li data-kind="listings">Lobby listings</li>
+          <li data-kind="snapshots">Spectator snapshots</li>
+          <li data-kind="saves">Saves</li>
+          <li class="note">A busy line shows a dot for some of its messages, not all.</li>
+        </ul>
+      </section>
+
+      <h2>By kind, the last minute</h2>
+      <div class="kinds" id="kinds"></div>
+
+      <section class="window flow-games" aria-labelledby="games-title">
+        <div class="titlebar">
+          <span class="lights" aria-hidden="true"></span>
+          <h2 id="games-title">Games</h2>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Game</th><th>Host</th><th>Players</th><th>Messages</th><th>Traffic</th></tr>
+          </thead>
+          <tbody id="flow-games"></tbody>
+        </table>
+        <p class="empty" id="no-games">No games on the broker right now. <a href="./">Start one</a>, and its messages show up here.</p>
+      </section>
+
+      <section class="window flow-tail" aria-labelledby="tail-title">
+        <div class="titlebar">
+          <span class="lights" aria-hidden="true"></span>
+          <h2 id="tail-title">Latest</h2>
+        </div>
+        <pre class="terminal" id="tail" aria-live="off"></pre>
+      </section>
+    </main>
+
+    <footer>
+      <a href="https://github.com/cloudamqp/doom">Source</a>
+      <a href="https://lavinmq.com">LavinMQ</a>
+      <a href="https://freedoom.github.io">Freedoom</a>
+      <a href="https://www.chocolate-doom.org">Chocolate Doom</a>
+    </footer>
+  </body>
+</html>
