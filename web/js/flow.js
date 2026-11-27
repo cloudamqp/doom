@@ -3,8 +3,8 @@
 //
 // It sees each message once, as it is published: a Doom packet then goes to
 // one peer, a listing to everyone in the lobby, a spectator snapshot to
-// everyone watching from above, and a tic for in-game spectators to all of
-// them at once.
+// everyone watching from above, a tic for in-game spectators to all of
+// them at once, and a running game to a player who joins it.
 
 import { MqttClient } from "./mqtt.js";
 import {
@@ -24,14 +24,16 @@ import {
 } from "./doomq.js";
 
 // Colors checked for color blindness as a set on the window's surface; saves
-// are rare and also drawn as rings
+// and joins are rare and also drawn as rings
 const KINDS = {
   packets: { label: "Doom packets", filter: "doomq/games/+/+/+", color: "#e76624" },
   listings: { label: "Lobby listings", filter: "doomq/lobby/+", color: "#00a888" },
   snapshots: { label: "Spectator snapshots", filter: "doomq/watch/+", color: "#338ced" },
   saves: { label: "Saves", filter: "doomq/saves/+", color: "#d9d6ce" },
+  joins: { label: "Games for newcomers", filter: "doomq/join/+/+", color: "#c75fc0" },
 };
-const KIND_OF_LEVEL = { games: "packets", lobby: "listings", watch: "snapshots", saves: "saves" };
+const KIND_OF_LEVEL = { games: "packets", lobby: "listings", watch: "snapshots", saves: "saves", join: "joins" };
+const RINGS = new Set(["saves", "joins"]);
 
 // Doom's packet types, see doom/src/net_defs.h; reliable ones have the top bit
 const PACKET_TYPES = [
@@ -81,6 +83,9 @@ function game(id) {
 // A PUBLISH packet: header, topic length, topic and payload
 const size = (topic, payload) => 4 + topic.length + payload.length;
 
+// In-game spectators show as one node, where they all listen
+const peerNode = (peer) => (isSpectator(peer) ? SPECTATORS : peer);
+
 function receive(topic, payload, { retain }) {
   const [, level, id, to, from] = topic.split("/");
   const kind = KIND_OF_LEVEL[level];
@@ -106,9 +111,10 @@ function receive(topic, payload, { retain }) {
       if (peer === SPECTATORS || isSpectator(peer)) g.spectators = g.seen;
       else if (peer >= SERVER_ID) g.peers.set(peer, g.seen);
     }
-    // In-game spectators show as one node, where they all listen
-    const node = (peer) => (isSpectator(peer) ? SPECTATORS : peer);
-    path = [`${id}/${node(source)}`, `${id}/${node(target)}`];
+    path = [`${id}/${peerNode(source)}`, `${id}/${peerNode(target)}`];
+  } else if (kind === "joins") {
+    // From the host to the newcomer
+    path = [`${id}/${SERVER_ID}`, `${id}/${peerNode(Number(to))}`];
   } else {
     path = [`${id}/${SERVER_ID}`, kind];
   }
@@ -229,8 +235,8 @@ function draw(t) {
     const x = a.x + (b.x - a.x) * p;
     const y = a.y + (b.y - a.y) * p;
     context.beginPath();
-    if (d.kind === "saves") {
-      context.strokeStyle = KINDS.saves.color;
+    if (RINGS.has(d.kind)) {
+      context.strokeStyle = KINDS[d.kind].color;
       context.lineWidth = 2;
       context.arc(x, y, 5, 0, 2 * Math.PI);
       context.stroke();
