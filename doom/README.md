@@ -47,6 +47,20 @@
   spots, the rest spawn on the next free spot or co-op start. Five players
   or more get a smaller intermission table. Savegames hold eight players,
   demos keep vanilla's four.
+- Players and spectators can join a running game, players with `-dropin`
+  on the server. The server takes a newcomer at the first tic that no one
+  has been sent yet, makes up empty moves for them until theirs arrive in
+  time, and asks the host's game for the game as it is then
+  (`D_RequestSnapshot`). That is a snapshot of everything, unlike a
+  savegame, which leaves out what every peer that loads it makes up the same
+  way (`P_ArchiveSnapshot`). It goes over MQTT (`NET_MQTT_SendSnapshot`), and
+  every peer gives the newcomer a marine at that tic (`G_PlayerJoined`).
+  Ticcmds are diffed against an empty one instead of the one before, which a
+  newcomer doesn't have.
+- `-hash` prints a hash of the game every second, the same on every peer in
+  step, and `-snapshottest <tic>` saves the game at a tic and goes on from
+  what loads. For that, level specials start zeroed, and a player without a
+  marine checks consistency with 0 instead of `M_Random`'s index.
 
 `src/doom/d_watch.c` hands the page what spectators see, nine times a second:
 the players, their scores and the monsters.
@@ -74,6 +88,7 @@ The game prints `doom: <code>, <text>` lines on stdout for the page to act on:
 | 11   | entering fullscreen |
 | 12   | a client timed out (server only) |
 | 13   | saved, with the savegame's path |
+| 17   | joining a running game, with the tic; 10 follows once it has arrived |
 
 ## License
 

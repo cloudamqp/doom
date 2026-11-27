@@ -81,6 +81,7 @@ void NET_WriteSettings(net_packet_t *packet, net_gamesettings_t *settings)
     NET_WriteInt8(packet, settings->random);
     NET_WriteInt8(packet, settings->num_players);
     NET_WriteInt8(packet, settings->consoleplayer);
+    NET_WriteInt32(packet, settings->join_tic);
 
     for (i = 0; i < settings->num_players; ++i)
     {
@@ -109,7 +110,8 @@ boolean NET_ReadSettings(net_packet_t *packet, net_gamesettings_t *settings)
            && NET_ReadSInt8(packet, (signed int *) &settings->loadgame)
            && NET_ReadInt8(packet, (unsigned int *) &settings->random)
            && NET_ReadInt8(packet, (unsigned int *) &settings->num_players)
-           && NET_ReadSInt8(packet, (signed int *) &settings->consoleplayer);
+           && NET_ReadSInt8(packet, (signed int *) &settings->consoleplayer)
+           && NET_ReadSInt32(packet, &settings->join_tic);
 
     if (!success)
     {
@@ -302,7 +304,7 @@ boolean NET_ReadTiccmdDiff(net_packet_t *packet, net_ticdiff_t *diff,
     return true;
 }
 
-void NET_TiccmdDiff(ticcmd_t *tic1, ticcmd_t *tic2, net_ticdiff_t *diff)
+void NET_TiccmdDiff(const ticcmd_t *tic1, const ticcmd_t *tic2, net_ticdiff_t *diff)
 {
     diff->diff = 0;
     diff->cmd = *tic2;
@@ -331,7 +333,7 @@ void NET_TiccmdDiff(ticcmd_t *tic1, ticcmd_t *tic2, net_ticdiff_t *diff)
         diff->diff |= NET_TICDIFF_STRIFE;
 }
 
-void NET_TiccmdPatch(ticcmd_t *src, net_ticdiff_t *diff, ticcmd_t *dest)
+void NET_TiccmdPatch(const ticcmd_t *src, net_ticdiff_t *diff, ticcmd_t *dest)
 {
     memmove(dest, src, sizeof(ticcmd_t));
 

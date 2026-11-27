@@ -22,7 +22,7 @@ RUN gzip -k9 /usr/share/nginx/html/freedoom1.wad
 # The bot service: Doom as a plain program that plays by itself, see
 # doom/native. docker build --target bots -t doomq-bots .
 FROM debian:13-slim AS bots-build
-RUN apt-get update -q && apt-get install -qy --no-install-recommends gcc libc6-dev libssl-dev make pkg-config
+RUN apt-get update -q && apt-get install -qy --no-install-recommends gcc libc6-dev libssl-dev make pkg-config zlib1g-dev
 WORKDIR /src
 COPY doom/ doom/
 RUN make -C doom native

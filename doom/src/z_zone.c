@@ -340,6 +340,14 @@ Z_Malloc
 
     result  = (void *) ((byte *)base + sizeof(memblock_t));
 
+    // Level specials leave some fields unset until they need them. Zeroed,
+    // these are the same on every peer, for peers that compare their games
+    // (-hash in doom/d_net.c).
+    if (tag == PU_LEVSPEC)
+    {
+        memset(result, 0, size - sizeof(memblock_t));
+    }
+
     if (base->user)
     {
         *base->user = result;

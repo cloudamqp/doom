@@ -8,6 +8,7 @@ import {
   RECONNECT_FOR,
   SKILLS,
   brokerUrl,
+  canJoin,
   deleteSave,
   isGameId,
   link,
@@ -61,19 +62,20 @@ function row(cells, ...actions) {
   return tr;
 }
 
-// Join while there's room, spectate in game until it starts, then watch from
-// above, unless the host keeps the game to the players
+// Join while there's room, and once the game runs if its host lets players
+// join then. Spectate in game, and watch from above once it runs, unless the
+// host keeps the game to the players.
 function gameActions(id, game) {
   const watchable = game.spectators !== false;
   const button = (text, query, className = "button in-page") => element("a", text, { href: link("./", query), className });
   const actions = [];
-  if (game.state === "waiting") {
-    if (game.players < game.maxPlayers) actions.push(button("Join", { game: id }));
-    if (watchable) actions.push(button("Spectate", { game: id, spectate: 1 }, "button watch in-page"));
-  } else if (watchable) {
-    actions.push(button("Watch", { watch: id }, "button watch in-page"));
-  }
-  return actions.length ? actions : [element("span", game.state === "waiting" ? "Full" : "Playing", { className: "muted" })];
+  if (canJoin(game)) actions.push(button("Join", { game: id }));
+  if (watchable) actions.push(button("Spectate", { game: id, spectate: 1 }, "button watch in-page"));
+  if (watchable && game.state === "playing") actions.push(button("Watch", { watch: id }, "button watch in-page"));
+  if (!actions.length) return [element("span", game.state === "waiting" ? "Full" : "Playing", { className: "muted" })];
+  const list = element("div", undefined, { className: "actions" });
+  list.append(...actions);
+  return [list];
 }
 
 // Leaves the rows alone unless they changed, as listings come again every
@@ -151,6 +153,7 @@ form.addEventListener("submit", (event) => {
     bots: fields.bots.value,
     botskill: fields.botskill.value,
     spectators: fields.spectators.checked ? 1 : 0,
+    joinmidgame: fields.joinmidgame.checked ? 1 : 0,
   }));
 });
 

@@ -58,6 +58,14 @@ void P_UnArchiveThinkers (void);
 void P_ArchiveSpecials (void);
 void P_UnArchiveSpecials (void);
 
+// Everything a running game needs, for a player who joins it, and a hash
+// of it, see p_saveg.c
+// A running game, for a player who joins it: it is the game before the given
+// tic runs, and loading it returns that tic
+void P_ArchiveSnapshot(int tic);
+int P_UnArchiveSnapshot(void);
+unsigned int P_StateHash(int tic);
+
 extern FILE *save_stream;
 extern boolean savegame_error;
 

@@ -7,6 +7,7 @@ import {
   SERVER_ID,
   SPECTATORS,
   brokerUrl,
+  canJoin,
   deleteSave,
   doomArgs,
   isGameId,
@@ -60,12 +61,20 @@ const lastSeen = new Map(); // peer -> time of its last packet, the host counts 
 const waiting = new Map(); // topic -> callback for its retained message
 let error = "The game crashed.";
 
-const fire = burn($("#loading .fire"));
+let fire = burn($("#loading .fire"));
 
 // Shown over the screen until Doom draws on it
 function loaded() {
   $("#loading").hidden = true;
   fire.stop();
+}
+
+// And again while a player who joins a running game gets it
+function joining() {
+  loading("Joining the game…");
+  if (!$("#loading").hidden) return;
+  $("#loading").hidden = false;
+  fire = burn($("#loading .fire"));
 }
 
 function fail(message) {
@@ -89,9 +98,21 @@ function describe(game) {
   $("#details").textContent = `${MODES[game.mode]} · ${game.map} · ${game.players}/${game.maxPlayers} players`;
 }
 
+// The running game, from the host as we join it. Doom loads it from there,
+// see LoadSnapshot in doom/src/doom/d_net.c.
+async function arrived(payload) {
+  try {
+    Module.FS.writeFile("join.dsg", await gunzip(payload));
+  } catch {
+    fail("The game arrived damaged.");
+  }
+}
+
 function receive(topic, payload) {
   waiting.get(topic)?.(payload);
-  if (topic === topics.listing(gameId)) {
+  if (topic === topics.join(gameId, peerId)) {
+    arrived(payload);
+  } else if (topic === topics.listing(gameId)) {
     // Guests follow the host's listing
     const game = parseListing(payload);
     clearTimeout(hostLeft);
@@ -145,8 +166,8 @@ async function host(mqtt) {
     const save = summary && parseSave(summary);
     if (!save || !data) throw new Error("The saved game is gone.");
     files[RESUME_FILE] = await unpack(data, save, save.players);
-    const { title, mode, skill, map, monsters, spectators = true, players } = save;
-    settings = { title, mode, skill, map, monsters, spectators };
+    const { title, mode, skill, map, monsters, spectators = true, joinMidGame = true, players } = save;
+    settings = { title, mode, skill, map, monsters, spectators, joinMidGame };
     maxPlayers = players;
     resumedFrom = resumeId;
     // Doom starts by itself once as many players as saved have joined.
@@ -209,12 +230,15 @@ async function guest(mqtt) {
   const listing = await retained(mqtt, topics.listing(gameId));
   const game = listing && parseListing(listing);
   if (!game) throw new Error("No such game.");
-  if (game.state !== "waiting") throw new Error("The game has already started.");
-  if (!spectating && game.players >= game.maxPlayers) throw new Error("The game is full.");
   if (spectating && game.spectators === false) throw new Error("This game's host doesn't let anyone watch.");
+  if (!spectating && !canJoin(game)) {
+    throw new Error(game.players >= game.maxPlayers ? "The game is full." : "The game has already started.");
+  }
+  const running = game.state === "playing";
 
   const files = {};
-  if (game.resumedFrom) {
+  // Who joins a running game gets it as it is from the host
+  if (game.resumedFrom && !running) {
     const data = await retained(mqtt, topics.saveData(game.resumedFrom));
     if (!data) throw new Error("The saved game is gone.");
     files[RESUME_FILE] = await unpack(data, game, game.maxPlayers);
@@ -223,11 +247,11 @@ async function guest(mqtt) {
     return {
       args: ["-connect", String(SERVER_ID), "-drone"],
       files,
-      hint: "You're spectating. The host starts the game once everyone has joined.",
+      hint: running ? "You're spectating." : "You're spectating. The host starts the game once everyone has joined.",
       playingHint: "You're spectating.",
     };
   }
-  return { args: ["-connect", String(SERVER_ID)], files, hint: "The host starts the game once everyone has joined." };
+  return { args: ["-connect", String(SERVER_ID)], files, hint: running ? "" : "The host starts the game once everyone has joined." };
 }
 
 function restoreSettings(FS) {
@@ -295,7 +319,10 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       console.log(line);
       // Next comes the waiting room
       if (line.startsWith("NET_Init:")) loaded();
+      // The game runs already, see D_CheckNetGame in doom/src/doom/d_net.c
+      if (line.startsWith("doom: 17,")) joining();
       if (line.startsWith("doom: 10,")) {
+        loaded();
         running = true;
         stopMusic(); // Doom plays its own
         $("#touch [data-action=start]").hidden = true;
@@ -322,6 +349,8 @@ function startDoom(mqtt, role, { js, wasm, wad }) {
       connected: () => mqtt.connected,
       send: (to, data) => mqtt.publish(topics.packet(gameId, to, peerId), data),
       recv: () => inbox.shift(),
+      // The running game, for a peer who joins it
+      snapshot: async (to, data) => mqtt.publish(topics.join(gameId, to), await gzip(data)),
     },
   };
   document.body.append(Object.assign(document.createElement("script"), { text: `${js}\n//# sourceURL=doom.js` }));
@@ -366,6 +395,8 @@ if (!isGameId(gameId) || (resumeId !== null && !isGameId(resumeId))) {
       fail("Lost connection to the broker.");
     };
     for (const to of [peerId, ...(spectating ? [SPECTATORS] : [])]) await mqtt.subscribe(topics.inbox(gameId, to));
+    // A game may be running by the time Doom joins it
+    if (!hosting) await mqtt.subscribe(topics.join(gameId, peerId));
     role = await (hosting ? host(mqtt) : guest(mqtt));
     const doom = await downloads;
     unwatch();

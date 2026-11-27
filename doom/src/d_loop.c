@@ -30,8 +30,10 @@
 
 #include "m_argv.h"
 #include "m_fixed.h"
+#include "m_misc.h"
 
 #include "net_client.h"
+#include "net_common.h"
 #include "net_gui.h"
 #include "net_io.h"
 #include "net_loop.h"
@@ -110,6 +112,39 @@ static loop_interface_t *loop_interface = NULL;
 
 static boolean local_playeringame[NET_MAXPLAYERS];
 
+// Joining a running game: the game comes from the host, see
+// D_RequestSnapshot, then the tics run until they catch up, before this
+// player makes any of their own.
+
+typedef enum {
+    JOIN_NONE,
+    JOIN_LOADING,
+    JOIN_CATCHING_UP,
+} join_state_t;
+
+static join_state_t join_state = JOIN_NONE;
+static int join_start_ms;
+
+// How long the game takes to arrive at most
+#define JOIN_TIMEOUT_MS 60000
+
+// How far ahead of the game a player who joined starts to make tics: the
+// tics there are on their way already, and the server made up ours. The
+// server goes on making them up until our first is there in time.
+#define JOIN_LEAD 8
+
+// The first tic this player made after joining
+static int first_made_tic;
+
+// Players who join this game, waiting for it as it is at the tic they join
+typedef struct {
+    int tic;
+    net_addr_t *addr;
+} snapshot_request_t;
+
+static snapshot_request_t snapshot_requests[MAXNETNODES];
+static int num_snapshot_requests;
+
 // Requested player class "sent" to the server on connect.
 // If we are only doing a single player game then this needs to be remembered
 // and saved in the game settings.
@@ -149,8 +184,8 @@ static boolean BuildNewTic(void)
 
     loop_interface->RunMenu();
 
-    if (drone) {
-        // In drone mode, do not generate any ticcmds.
+    if (drone || join_state != JOIN_NONE) {
+        // In drone mode, do not generate any ticcmds. Nor while joining.
 
         return false;
     }
@@ -256,7 +291,7 @@ static void D_Disconnected(void)
 // available.
 //
 
-void D_ReceiveTic(ticcmd_t *ticcmds, boolean *players_mask)
+void D_ReceiveTic(int tic, ticcmd_t *ticcmds, boolean *players_mask)
 {
     int i;
 
@@ -267,13 +302,29 @@ void D_ReceiveTic(ticcmd_t *ticcmds, boolean *players_mask)
         return;
     }
 
+    // A player who joins a running game may get its first tics before
+    // D_StartNetGame is done
+    recvtic = tic;
+
     for (i = 0; i < NET_MAXPLAYERS; ++i) {
-        if (!drone && i == localplayer) {
+        if (!drone && i == localplayer && !players_mask[i]) {
             // This is us.  Don't overwrite it.
         }
         else {
+            // Our own when we have just joined: the server made it up
             ticdata[recvtic % BACKUPTICS].cmds[i] = ticcmds[i];
             ticdata[recvtic % BACKUPTICS].ingame[i] = players_mask[i];
+        }
+    }
+
+    // The server made up our move as we joined. Too late to make it, or we
+    // made it too late: then the next ones sooner.
+    if (!drone && players_mask[localplayer]) {
+        if (tic >= maketic) {
+            maketic = tic + 1;
+        }
+        else if (tic >= first_made_tic) {
+            --lasttime;
         }
     }
 
@@ -319,6 +370,7 @@ void D_StartNetGame(net_gamesettings_t *settings, netgame_startup_callback_t cal
 
     settings->consoleplayer = 0;
     settings->num_players = local_players;
+    settings->join_tic = -1;
     settings->player_classes[0] = player_class;
 
     //!
@@ -372,6 +424,18 @@ void D_StartNetGame(net_gamesettings_t *settings, netgame_startup_callback_t cal
 
     if (drone) {
         settings->consoleplayer = 0;
+    }
+
+    // Joining a running game: the receive window starts at the tic we
+    // join at, the game comes on its own, see TryRunTics
+
+    if (settings->join_tic >= 0) {
+        join_state = JOIN_LOADING;
+        join_start_ms = I_GetTimeMS();
+        maketic = gametic = settings->join_tic;
+        if (recvtic < settings->join_tic) {
+            recvtic = settings->join_tic;
+        }
     }
 
     // Set the local player and playeringame[] values.
@@ -479,7 +543,7 @@ static int GetLowTic(void)
     lowtic = maketic;
 
     if (net_client_connected) {
-        if (drone || recvtic < lowtic) {
+        if (drone || join_state != JOIN_NONE || recvtic < lowtic) {
             lowtic = recvtic;
         }
     }
@@ -588,6 +652,94 @@ static void SinglePlayerClear(ticcmd_set_t *set)
     }
 }
 
+// Load the game for a player who joins it, once it is there. Returns false
+// until then.
+
+static boolean LoadJoinSnapshot(void)
+{
+    int tic = loop_interface->LoadSnapshot(recvtic);
+
+    if (tic < 0) {
+        if (I_GetTimeMS() - join_start_ms > JOIN_TIMEOUT_MS) {
+            I_Error("doom: 7, could not join: the game didn't arrive");
+        }
+        return false;
+    }
+
+    if (recvtic - tic > BACKUPTICS) {
+        I_Error("doom: 7, could not join: the game arrived too late");
+    }
+
+    NET_Log("client: joined at tic %d, received up to %d", tic, recvtic);
+    gametic = tic;
+    join_state = JOIN_CATCHING_UP;
+
+    return true;
+}
+
+// Caught up with the game after joining: from now on we play
+
+static void JoinedGame(void)
+{
+    join_state = JOIN_NONE;
+
+    if (!drone) {
+        maketic = first_made_tic = recvtic + JOIN_LEAD;
+        lasttime = GetAdjustedTime() / ticdup;
+    }
+}
+
+// Players who join wait for the game as it is at the tic they join, or at
+// a later one: between levels the game can't be saved
+
+static void SendSnapshots(void)
+{
+    const char *path = NULL;
+    byte *data = NULL;
+    int len = 0;
+    int i = 0;
+
+    while (i < num_snapshot_requests) {
+        snapshot_request_t *request = &snapshot_requests[i];
+
+        if (request->tic > gametic) {
+            ++i;
+            continue;
+        }
+
+        if (path == NULL) {
+            path = loop_interface->SaveSnapshot();
+
+            if (path == NULL) {
+                return;
+            }
+
+            len = M_ReadFile(path, &data);
+        }
+
+        NET_Log("server: sending tic %d to %s, %d bytes", gametic, NET_AddrToString(request->addr), len);
+        NET_MQTT_SendSnapshot(request->addr, data, len);
+        NET_ReleaseAddress(request->addr);
+        *request = snapshot_requests[--num_snapshot_requests];
+    }
+
+    if (data != NULL) {
+        Z_Free(data);
+    }
+}
+
+void D_RequestSnapshot(int tic, net_addr_t *addr)
+{
+    if (num_snapshot_requests == arrlen(snapshot_requests)) {
+        return;
+    }
+
+    NET_ReferenceAddress(addr);
+    snapshot_requests[num_snapshot_requests].tic = tic;
+    snapshot_requests[num_snapshot_requests].addr = addr;
+    ++num_snapshot_requests;
+}
+
 //
 // TryRunTics
 //
@@ -615,6 +767,10 @@ void TryRunTics(void)
     }
     else {
         NetUpdate();
+    }
+
+    if (join_state == JOIN_LOADING && !LoadJoinSnapshot()) {
+        return;
     }
 
     lowtic = GetLowTic();
@@ -679,6 +835,10 @@ void TryRunTics(void)
 
             memcpy(local_playeringame, set->ingame, sizeof(local_playeringame));
 
+            if (num_snapshot_requests > 0) {
+                SendSnapshots();
+            }
+
             loop_interface->RunTic(set->cmds, set->ingame);
             gametic++;
 
@@ -688,6 +848,10 @@ void TryRunTics(void)
         }
 
         NetUpdate(); // check for new console commands
+    }
+
+    if (join_state == JOIN_CATCHING_UP && gametic >= recvtic) {
+        JoinedGame();
     }
 }
 

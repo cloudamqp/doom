@@ -26,4 +26,9 @@ extern net_module_t net_mqtt_module;
 // game to it once and the broker copies it to each spectator.
 #define NET_MQTT_SPECTATORS "0"
 
+// Sends the game to a peer who joins it, see D_RequestSnapshot. It is too
+// big for a packet: it goes on a topic of its own, and the peer's page
+// puts it where Doom loads it, see LoadSnapshot in doom/d_net.c.
+void NET_MQTT_SendSnapshot(net_addr_t *addr, const byte *data, int len);
+
 #endif /* #ifndef NET_MQTT_H */

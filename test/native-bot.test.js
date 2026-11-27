@@ -120,6 +120,39 @@ test("a game that a bot hosts can be watched from above", async () => {
   assert.deepEqual(watch.players.map((player) => player.name), ["Host", "Guest"]);
 });
 
+test("a browser joins a game that a bot hosts once it runs", async () => {
+  const game = newGameId();
+  const match = ["-game", game, "-bot", "3", "-deathmatch", "-warp", "1", "1", "-hash"];
+  const host = doom("-server", "-title", "Joinable", "-pet", "Host", "-nodes", "2", "-dropin", ...match);
+  doom("-connect", "1", "-pet", "Guest", ...match);
+  await until("the game to start", () => host.output.includes("doom: 10,"));
+
+  const page = await browser.newPage();
+  page.lines = [];
+  page.on("console", (message) => page.lines.push(message.text()));
+  await page.evaluateOnNewDocument(() => {
+    let module;
+    Object.defineProperty(window, "Module", {
+      configurable: true,
+      get: () => module,
+      set: (value) => {
+        value?.arguments?.push("-hash");
+        module = value;
+      },
+    });
+  });
+  await page.goto(`${WEB_URL}/?game=${game}`);
+  await until("the browser to join", () => page.lines.some((line) => line.startsWith("doom: 10,")), 30_000);
+  await sleep(5_000);
+
+  const hashes = (lines) => new Map(lines.filter((line) => line.startsWith("hash: ")).map((line) => line.split(" ").slice(1)));
+  const [onHost, onPage] = [hashes(host.output.split("\n")), hashes(page.lines)];
+  const tics = [...onPage.keys()].filter((tic) => onHost.has(tic));
+  assert.ok(tics.length >= 4, `${tics.length} tics compared`);
+  for (const tic of tics) assert.equal(onPage.get(tic), onHost.get(tic), `the game differs at tic ${tic}`);
+  await page.close();
+});
+
 const arena = `::-p-xpath(//table[@id="games"]/tbody/tr[td[1][text()="Bot arena"]][td[6][text()="2/8"]])`;
 
 test("the bot service keeps a game of bots waiting in the lobby", async () => {

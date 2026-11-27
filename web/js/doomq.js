@@ -63,5 +63,6 @@ export function settingsFromQuery(query) {
     bots: BOTS.includes(Number(query.get("bots"))) ? Number(query.get("bots")) : 0,
     botSkill: BOT_SKILLS[Number(query.get("botskill")) - 1] ? Number(query.get("botskill")) : 3,
     spectators: query.get("spectators") !== "0",
+    joinMidGame: query.get("joinmidgame") !== "0",
   };
 }

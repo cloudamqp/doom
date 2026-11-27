@@ -51,6 +51,10 @@ typedef struct
     byte arti;                  // artitype_t to use
 } ticcmd_t;
 
+// lookfly of a move the server made up for a player who is still joining:
+// Doom has no use for lookfly otherwise, see net_server.c
+#define TICCMD_FILLED 0xff
+
 
 
 #endif

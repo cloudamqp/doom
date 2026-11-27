@@ -42,7 +42,7 @@
 #include "w_checksum.h"
 #include "w_wad.h"
 
-extern void D_ReceiveTic(ticcmd_t *ticcmds, boolean *playeringame);
+extern void D_ReceiveTic(int tic, ticcmd_t *ticcmds, boolean *playeringame);
 
 typedef enum {
     // waiting for the game to launch
@@ -132,9 +132,11 @@ char *net_player_name = NULL;
 
 boolean drone = false;
 
-// The last ticcmd constructed
+// What every ticcmd diff is against: nothing. A diff against the ticcmd
+// before would be smaller, but a player who joins a running game doesn't
+// have the ticcmds before.
 
-static ticcmd_t last_ticcmd;
+static const ticcmd_t no_ticcmd;
 
 // Buffer of ticcmd diffs being sent to the server
 
@@ -142,7 +144,6 @@ static net_server_send_t send_queue[BACKUPTICS];
 
 // Receive window
 
-static ticcmd_t recvwindow_cmd_base[NET_MAXPLAYERS];
 static int recvwindow_start;
 static net_server_recv_t recvwindow[BACKUPTICS];
 
@@ -171,7 +172,7 @@ unsigned int net_local_is_freedoom;
 
 // Called when we become disconnected from the server
 
-static void NET_CL_Disconnected(void) { D_ReceiveTic(NULL, NULL); }
+static void NET_CL_Disconnected(void) { D_ReceiveTic(0, NULL, NULL); }
 
 // Called when a packet is received from the server containing game
 // data. This updates the clock synchronization variable (offsetms)
@@ -213,34 +214,17 @@ static void UpdateClockSync(unsigned int seq, unsigned int remote_latency)
 }
 
 // Expand a net_full_ticcmd_t, applying the diffs in cmd->cmds as
-// patches against recvwindow_cmd_base.  Place the results into
-// the d_net.c structures (netcmds/nettics) and save the new ticcmd
-// back into recvwindow_cmd_base.
+// patches against no_ticcmd, into the ticcmds for d_loop.c. Our own is
+// only there when the server made it up, as we joined, see
+// NET_SV_FillTic.
 
 static void NET_CL_ExpandFullTiccmd(net_full_ticcmd_t *cmd, unsigned int seq, ticcmd_t *ticcmds)
 {
     int i;
 
-    // Expand tic diffs for all players
-
     for (i = 0; i < NET_MAXPLAYERS; ++i) {
-        if (i == settings.consoleplayer && !drone) {
-            continue;
-        }
-
         if (cmd->playeringame[i]) {
-            net_ticdiff_t *diff;
-
-            diff = &cmd->cmds[i];
-
-            // Use the ticcmd diff to patch the previous ticcmd to
-            // the new ticcmd
-
-            NET_TiccmdPatch(&recvwindow_cmd_base[i], diff, &ticcmds[i]);
-
-            // Store a copy for next time
-
-            recvwindow_cmd_base[i] = ticcmds[i];
+            NET_TiccmdPatch(&no_ticcmd, &cmd->cmds[i], &ticcmds[i]);
         }
     }
 }
@@ -255,7 +239,7 @@ static void NET_CL_AdvanceWindow(void)
         // Expand tic diff data into d_net.c structures
 
         NET_CL_ExpandFullTiccmd(&recvwindow[0].cmd, recvwindow_start, ticcmds);
-        D_ReceiveTic(ticcmds, recvwindow[0].cmd.playeringame);
+        D_ReceiveTic(recvwindow_start, ticcmds, recvwindow[0].cmd.playeringame);
 
         // Advance the window
 
@@ -286,10 +270,6 @@ void NET_CL_LaunchGame(void) { NET_Conn_NewReliable(&client_connection, NET_PACK
 void NET_CL_StartGame(net_gamesettings_t *settings)
 {
     net_packet_t *packet;
-
-    // Start from a ticcmd of all zeros
-
-    memset(&last_ticcmd, 0, sizeof(ticcmd_t));
 
     // Send packet
 
@@ -326,6 +306,12 @@ static void NET_CL_SendTics(int start, int end)
     }
 
     if (start < 0) start = 0;
+
+    // Only the tics we have made: a player who joins a running game makes
+    // the first one well after tic 0
+    while (start < end && (!send_queue[start % BACKUPTICS].active || send_queue[start % BACKUPTICS].seq != start)) {
+        ++start;
+    }
 
     // Build a new packet to send to the server
 
@@ -372,9 +358,7 @@ void NET_CL_SendTiccmd(ticcmd_t *ticcmd, int maketic)
     net_server_send_t *sendobj;
     int starttic, endtic;
 
-    // Calculate the difference to the last ticcmd
-
-    NET_TiccmdDiff(&last_ticcmd, ticcmd, &diff);
+    NET_TiccmdDiff(&no_ticcmd, ticcmd, &diff);
 
     // Store in the send queue
 
@@ -383,8 +367,6 @@ void NET_CL_SendTiccmd(ticcmd_t *ticcmd, int maketic)
     sendobj->seq = maketic;
     sendobj->time = I_GetTimeMS();
     sendobj->cmd = diff;
-
-    last_ticcmd = *ticcmd;
 
     // Send to server.
 
@@ -548,11 +530,10 @@ static void NET_CL_ParseGameStart(net_packet_t *packet)
     NET_Log("client: beginning game state");
     client_state = CLIENT_STATE_IN_GAME;
 
-    // Clear the receive window
+    // Clear the receive window, it starts where we join the game
 
     memset(recvwindow, 0, sizeof(recvwindow));
-    recvwindow_start = 0;
-    memset(&recvwindow_cmd_base, 0, sizeof(recvwindow_cmd_base));
+    recvwindow_start = settings.join_tic > 0 ? settings.join_tic : 0;
 
     // Clear the send queue
 

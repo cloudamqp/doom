@@ -96,8 +96,8 @@
         that don't arrive, so the broker needn't acknowledge anything.
       </p>
       <ul>
-        <li>A packet is 11 to 22 bytes. Its topic is 37, and the PUBLISH around it 4 more.</li>
-        <li>That makes about 2 KB a second each way per player.</li>
+        <li>A packet is 11 to 40 bytes. Its topic is 37, and the PUBLISH around it 4 more.</li>
+        <li>That makes 2 to 3 KB a second each way per player.</li>
         <li>A four player game puts about 210 messages a second through the broker, and as many out.</li>
       </ul>
       <p>
@@ -105,6 +105,21 @@
         test with the round trip of a player in New Zealand, a host in Sweden and the broker in Amsterdam, a move took
         200 to 250 ms to show up, for everyone.
       </p>
+
+      <h2 class="step">Players join a running game</h2>
+      <p>
+        Lockstep can't take a player in halfway: every player runs the game from its first tic. So when one joins a game
+        that runs, the host's Doom saves the game as it is just before the tic the newcomer joins at, down to whom each
+        monster chases, and sends it gzipped on a topic of the newcomer's own. The newcomer loads it, runs the tics it
+        got meanwhile as fast as it can, and plays.
+      </p>
+      <p>
+        Nobody waits for the newcomer: until its moves arrive, the host makes up empty ones, and its marine stands still
+        for a moment. A host can keep a running game to those who started it.
+      </p>
+      <pre class="window terminal"><code><b>SUBSCRIBE</b>  <i>doomq/join/465811044f7b/3735928559</i>
+<b>RECEIVE</b>    <i>doomq/join/465811044f7b/3735928559</i>  <span>from the host</span>
+           <span>28 KB of gzipped game, on average</span></code></pre>
 
       <h2 class="step">The game saves</h2>
       <p>
@@ -134,7 +149,7 @@
             {"number":0,"name":"Hanna","x":766,"y":592,"angle":224,"health":53,...},
             {"number":1,"name":"Ozzy","x":2485,"y":-560,"angle":96,"health":24,...}]}</code></pre>
       <p>
-        Spectators can also watch in Doom, if they join before the game starts. Each joins Doom's server as a drone,
+        Spectators can also watch in Doom, from the start or once it runs. Each joins Doom's server as a drone,
         which sends no moves, and all of them listen on peer 0: the host publishes each tic there once, and the broker
         copies it to every spectator. Doom's server doesn't wait for spectators, so a slow one only falls behind itself.
       </p>
@@ -148,7 +163,7 @@
       <ul class="features">
         <li>
           <strong><a href="https://lavinmq.com/blog/lavinmq-210-mqtt-topic-permissions">Topic permissions</a>.</strong>
-          A permission group allows the five topic filters below, and the broker drops anything else.
+          A permission group allows the six topic filters below, and the broker drops anything else.
         </li>
         <li>
           <strong>A policy on MQTT sessions.</strong> LavinMQ keeps each MQTT session in a queue,
@@ -165,7 +180,8 @@
 <i>doomq/games/+/+/+</i>      <span>Doom's packets</span>
 <i>doomq/saves/+</i>          <span>save summaries</span>
 <i>doomq/savedata/+</i>       <span>savegames</span>
-<i>doomq/watch/+</i>          <span>for spectators</span></code></pre>
+<i>doomq/watch/+</i>          <span>for spectators</span>
+<i>doomq/join/+/+</i>         <span>running games for newcomers</span></code></pre>
 
       <h2>Why MQTT</h2>
       <p>

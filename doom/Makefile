@@ -44,9 +44,10 @@ NATIVE_SKIP := d_dedicated gusconf i_cdmus i_endoom i_input i_joystick i_midipip
 NATIVE_SRC  := $(filter-out $(NATIVE_SKIP:%=src/%.c),$(wildcard src/*.c)) \
                $(filter-out src/doom/b_bot.c,$(wildcard src/doom/*.c)) $(wildcard native/*.c)
 NATIVE_OBJ  := $(NATIVE_SRC:%.c=$(OUT)/native/obj/%.o)
-NATIVE_CFLAGS := -O2 -g -I. -Inative -Inative/sdl -Isrc -Isrc/doom $(shell pkg-config --cflags openssl)
-# TLS to the broker (mqtts://) needs OpenSSL, 3 or newer
-NATIVE_LIBS := -lm $(shell pkg-config --libs openssl)
+NATIVE_CFLAGS := -O2 -g -I. -Inative -Inative/sdl -Isrc -Isrc/doom $(shell pkg-config --cflags openssl zlib)
+# TLS to the broker (mqtts://) needs OpenSSL, 3 or newer. zlib gzips the
+# game for players who join it.
+NATIVE_LIBS := -lm $(shell pkg-config --libs openssl zlib)
 
 # The native bot's own files once more as a library, for bots to take on new
 # code while they play, see native/reload.c. The library uses the game's

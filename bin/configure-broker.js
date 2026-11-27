@@ -37,6 +37,7 @@ const TOPICS = {
   saves: "doomq/saves/+",
   savedata: "doomq/savedata/+",
   watch: "doomq/watch/+",
+  join: "doomq/join/+/+",
 };
 // [<code>[:<name>]=]<amqp-url>
 const BROKER = /^(?:([^=:]+)(?::([^=]+))?=)?(amqps?:\/\/.+)$/;

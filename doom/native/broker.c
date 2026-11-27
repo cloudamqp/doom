@@ -26,9 +26,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <zlib.h>
 
 #include "broker.h"
 #include "doomdef.h"
+#include "doomstat.h"
 #include "i_system.h"
 #include "i_timer.h"
 #include "m_argv.h"
@@ -134,15 +136,34 @@ void Broker_List(const char *state, int players)
     // What web/js/protocol.js expects of a listing
     M_snprintf(listing, sizeof(listing),
                "{\"title\":\"%s\",\"host\":\"%s\",\"mode\":\"%s\",\"skill\":%d,\"map\":\"E%dM%d\","
-               "\"monsters\":%s,\"players\":%d,\"maxPlayers\":%d,\"state\":\"%s\"}",
+               "\"monsters\":%s,\"joinMidGame\":%s,\"players\":%d,\"maxPlayers\":%d,\"state\":\"%s\"}",
                title, name, mode, atoi(Argument("-skill", "3")), warp > 0 ? atoi(myargv[warp + 1]) : 1,
-               warp > 0 ? atoi(myargv[warp + 2]) : 1, M_CheckParm("-nomonsters") > 0 ? "false" : "true", players,
+               warp > 0 ? atoi(myargv[warp + 2]) : 1, M_CheckParm("-nomonsters") > 0 ? "false" : "true",
+               M_CheckParm("-dropin") > 0 ? "true" : "false", players,
                strcmp(mode, "coop") == 0 ? VANILLA_MAXPLAYERS : MAXPLAYERS, state);
     MQTT_Publish(listing_topic, (const byte *) listing, strlen(listing), true);
 
     listing_state = state;
     listing_players = players;
     listed_ms = I_GetTimeMS();
+}
+
+// The listing again: the lobby expects to hear from a host every few
+// seconds. Players can join a running game, and leave it.
+static void ListAgain(void)
+{
+    int players = listing_players;
+    int i;
+
+    if (strcmp(listing_state, "playing") == 0)
+    {
+        for (players = 0, i = 0; i < MAXPLAYERS; ++i)
+        {
+            players += playeringame[i];
+        }
+    }
+
+    Broker_List(listing_state, players);
 }
 
 // What web/js/protocol.js expects in parseWatch
@@ -206,6 +227,39 @@ void Broker_Send(uint32_t to, const byte *data, int len)
     MQTT_Publish(topic, data, len, false);
 }
 
+// A game for a peer who joins it, see NET_MQTT_SendSnapshot. Gzipped, as
+// browsers send it: it is up to 400 KB, more than a broker may take in a
+// message.
+void Broker_Snapshot(uint32_t to, const byte *data, int len)
+{
+    char topic[TOPIC_SIZE];
+    z_stream stream = {0};
+    uLong size = compressBound(len) + 32;
+    byte *gzipped = malloc(size);
+
+    // 16 more window bits for a gzip header
+    if (gzipped == NULL || deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+    {
+        I_Error("Broker_Snapshot: out of memory");
+    }
+
+    stream.next_in = (Bytef *) data;
+    stream.avail_in = len;
+    stream.next_out = gzipped;
+    stream.avail_out = size;
+
+    if (deflate(&stream, Z_FINISH) != Z_STREAM_END)
+    {
+        I_Error("Broker_Snapshot: could not gzip the game");
+    }
+
+    M_snprintf(topic, sizeof(topic), "doomq/join/%s/%u", game, to);
+    MQTT_Publish(topic, gzipped, stream.total_out, false);
+
+    deflateEnd(&stream);
+    free(gzipped);
+}
+
 int Broker_Recv(uint32_t *from, byte *buf, int size)
 {
     char topic[TOPIC_SIZE];
@@ -245,14 +299,13 @@ int Broker_Recv(uint32_t *from, byte *buf, int size)
         // The broker cleared the listing as the connection was lost
         if (listing_state != NULL)
         {
-            Broker_List(listing_state, listing_players);
+            ListAgain();
         }
     }
 
-    // The lobby expects to hear from a host every few seconds
     if (listing_state != NULL && I_GetTimeMS() - listed_ms > LISTING_MS)
     {
-        Broker_List(listing_state, listing_players);
+        ListAgain();
     }
 
     return -1;

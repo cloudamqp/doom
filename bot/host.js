@@ -5,7 +5,7 @@
 // starts by itself once enough players have joined.
 
 import { MqttClient } from "../web/js/mqtt.js";
-import { RECONNECT_FOR, SERVER_ID, doomArgs, isSpectator, newGameId, topics } from "../web/js/protocol.js";
+import { RECONNECT_FOR, SERVER_ID, doomArgs, isSpectator, maxPlayersFor, newGameId, topics } from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
@@ -16,9 +16,10 @@ const ANNOUNCE_INTERVAL = 5_000;
 // Resolves to Doom's exit status when the game is over.
 //   broker    ws://user:pass@host:15672/mqtt
 //   name      the host's name as a player
-//   settings  { title, mode, skill, map, monsters, spectators } as in the
-//             lobby's form
-//   players   how many the game starts with, the host included
+//   settings  { title, mode, skill, map, monsters, spectators, joinMidGame }
+//             as in the lobby's form
+//   players   how many the game starts with, the host included. More can
+//             join once it runs, with joinMidGame
 //   bot       given Doom's module, returns what plays, see doom.js
 //   say       is told what goes on, print gets Doom's output
 export async function host({ broker, name, settings, players, bot, say, print }) {
@@ -33,7 +34,8 @@ export async function host({ broker, name, settings, players, bot, say, print })
 
   const announce = () => {
     for (const [peer, time] of seen) if (performance.now() - time > PRESENCE_WINDOW) seen.delete(peer);
-    const present = { ...settings, host: name, players: 1 + seen.size, maxPlayers: players, state };
+    const maxPlayers = settings.joinMidGame ? maxPlayersFor(settings.mode) : players;
+    const present = { ...settings, host: name, players: 1 + seen.size, maxPlayers, state };
     mqtt.publish(listing, JSON.stringify(present), { retain: true });
   };
   const over = Promise.withResolvers();

@@ -18,8 +18,8 @@ import { MAPS, MODES, SKILLS, maxPlayersFor } from "../web/js/protocol.js";
 const USAGE = `Usage: bin/bot.js [options] [address or game]
 
 Joins a DooMQ game and plays it. Give it the address of a DooMQ page, as
-copied from the browser: the lobby's for the first game that waits for
-players, or a game's own. It finds the page's broker by itself. A game's id
+copied from the browser: the lobby's for the first game that players can
+join, or a game's own. It finds the page's broker by itself. A game's id
 alone is looked for on the broker below.
 
   --broker <url>   MQTT over WebSocket, instead of the page's. Default
@@ -34,6 +34,8 @@ alone is looked for on the broker below.
   --title <title>  with --host, default "<name>'s game"
   --no-monsters    with --host
   --no-spectators  with --host, keep the game to its players
+  --no-join-mid-game
+                   with --host, players can't join once it runs
   --solo <map>     practice alone on a map (E1M1 to E4M9) as fast as the
                    machine goes, without a broker
   --skill <1-5>    with --solo or --host, default 3
@@ -52,6 +54,7 @@ const { values: options, positionals } = parseArgs({
     title: { type: "string" },
     "no-monsters": { type: "boolean", default: false },
     "no-spectators": { type: "boolean", default: false },
+    "no-join-mid-game": { type: "boolean", default: false },
     solo: { type: "string" },
     skill: { type: "string", default: "3" },
     verbose: { type: "boolean", default: false },
@@ -98,7 +101,15 @@ function hosting() {
   if (!MAPS.includes(options.map)) throw new Error(`No such map: ${options.map}`);
   if (!SKILLS[skill - 1]) throw new Error(`No such skill: ${options.skill}`);
   const title = (options.title ?? `${options.name}'s game`).slice(0, 40);
-  const settings = { title, mode: options.mode, skill, map: options.map, monsters: !options["no-monsters"], spectators: !options["no-spectators"] };
+  const settings = {
+    title,
+    mode: options.mode,
+    skill,
+    map: options.map,
+    monsters: !options["no-monsters"],
+    spectators: !options["no-spectators"],
+    joinMidGame: !options["no-join-mid-game"],
+  };
   return { players, settings };
 }
 

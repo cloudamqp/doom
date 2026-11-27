@@ -28,6 +28,7 @@
 #include "m_argv.h"
 #include "m_misc.h"
 
+#include "d_loop.h"
 #include "debug.h"
 #include "net_client.h"
 #include "net_common.h"
@@ -114,6 +115,20 @@ typedef struct {
 
     int player_class;
 
+    // A player who joins a running game is in from this tic on, see
+    // NET_SV_JoinGame, and is joining until their first moves arrive.
+    // Until then the server makes up their moves, so that the others
+    // don't wait while the newcomer loads the game.
+
+    unsigned int join_tic;
+    boolean joining;
+
+    // Moves of a player who is still joining that came after the server
+    // made them up. After a second of these, the game waits for theirs as
+    // for any player's: they may never come in time otherwise.
+
+    int late_moves;
+
 } net_client_t;
 
 // structure used for the recv window
@@ -134,6 +149,10 @@ typedef struct {
     // Tic data itself
 
     net_ticdiff_t diff;
+
+    // Made up by the server for a player who is still joining
+
+    boolean filled;
 } net_client_recv_t;
 
 static net_server_state_t server_state;
@@ -153,6 +172,9 @@ static net_client_recv_t recvwindow[BACKUPTICS][NET_MAXPLAYERS];
 // Where spectators get the game, and the next tic to send there
 static net_addr_t *spectators;
 static unsigned int spectators_sendseq;
+
+// -dropin: players can join the game once it runs. Spectators always can.
+static boolean drop_in;
 
 #define NET_SV_ExpandTicNum(b) NET_ExpandTicNum(recvwindow_start, (b))
 
@@ -250,6 +272,39 @@ static int NET_SV_NumPlayers(void)
     for (i = 0; i < NET_MAXPLAYERS; ++i) {
         if (sv_players[i] != NULL && ClientConnected(sv_players[i])) {
             result += 1;
+        }
+    }
+
+    return result;
+}
+
+// Player numbers stay the same once the game runs, and players who left
+// leave gaps: returns the highest player number in use, plus one.
+
+static int NET_SV_NumSlots(void)
+{
+    int i;
+
+    for (i = NET_MAXPLAYERS; i > 0; --i) {
+        if (sv_players[i - 1] != NULL && ClientConnected(sv_players[i - 1])) {
+            break;
+        }
+    }
+
+    return i;
+}
+
+// Returns the number of players connected, with those who are about to
+// join a running game.
+
+static int NET_SV_NumPlayerClients(void)
+{
+    int result = 0;
+    int i;
+
+    for (i = 0; i < MAXNETNODES; ++i) {
+        if (ClientConnected(&clients[i]) && !clients[i].drone) {
+            ++result;
         }
     }
 
@@ -356,11 +411,13 @@ static void NET_SV_SendWaitingData(net_client_t *client)
     net_client_t *controller;
     int i;
 
-    NET_SV_AssignPlayers();
+    if (server_state != SERVER_IN_GAME) {
+        NET_SV_AssignPlayers();
+    }
 
     controller = NET_SV_Controller();
 
-    wait_data.num_players = NET_SV_NumPlayers();
+    wait_data.num_players = NET_SV_NumSlots();
     wait_data.num_drones = NET_SV_NumDrones();
     wait_data.ready_players = NET_SV_NumReadyPlayers();
     wait_data.max_players = NET_SV_MaxPlayers();
@@ -382,8 +439,14 @@ static void NET_SV_SendWaitingData(net_client_t *client)
     // set name and address of each player:
 
     for (i = 0; i < wait_data.num_players; ++i) {
-        M_StringCopy(wait_data.player_names[i], sv_players[i]->name, MAXPLAYERNAME);
-        M_StringCopy(wait_data.player_addrs[i], NET_AddrToString(sv_players[i]->addr), MAXPLAYERNAME);
+        if (sv_players[i] != NULL && ClientConnected(sv_players[i])) {
+            M_StringCopy(wait_data.player_names[i], sv_players[i]->name, MAXPLAYERNAME);
+            M_StringCopy(wait_data.player_addrs[i], NET_AddrToString(sv_players[i]->addr), MAXPLAYERNAME);
+        }
+        else {
+            wait_data.player_names[i][0] = '\0';
+            wait_data.player_addrs[i][0] = '\0';
+        }
     }
 
     // Construct packet:
@@ -409,7 +472,7 @@ static unsigned int NET_SV_LatestAcknowledged(void)
     int i;
 
     for (i = 0; i < MAXNETNODES; ++i) {
-        if (ClientConnected(&clients[i]) && !clients[i].drone) {
+        if (ClientConnected(&clients[i]) && !clients[i].drone && clients[i].ready) {
             if (clients[i].acknowledged < lowtic) {
                 lowtic = clients[i].acknowledged;
             }
@@ -444,7 +507,7 @@ static void NET_SV_AdvanceWindow(void)
         should_advance = true;
 
         for (i = 0; i < NET_MAXPLAYERS; ++i) {
-            if (sv_players[i] == NULL || !ClientConnected(sv_players[i])) {
+            if (sv_players[i] == NULL || !ClientConnected(sv_players[i]) || recvwindow_start < sv_players[i]->join_tic) {
                 continue;
             }
 
@@ -523,6 +586,10 @@ static void NET_SV_InitNewClient(net_client_t *client, net_addr_t *addr, net_pro
     client->acknowledged = 0;
     client->drone = false;
     client->ready = false;
+    client->player_number = -1;
+    client->join_tic = 0;
+    client->joining = false;
+    client->late_moves = 0;
 
     client->last_gamedata_time = 0;
 
@@ -618,16 +685,19 @@ static void NET_SV_ParseSYN(net_packet_t *packet, net_client_t *client, net_addr
 
     // At this point we have received a valid SYN.
 
-    // Not accepting new connections?
-    if (server_state != SERVER_WAITING_LAUNCH) {
+    // Not accepting new connections? Spectators can join a running game,
+    // and players with -dropin.
+    if (server_state == SERVER_WAITING_START || (server_state == SERVER_IN_GAME && !data.drone && !drop_in)) {
         NET_Log("server: error: not in waiting launch state, server_state=%d", server_state);
         NET_SV_SendReject(addr, "Server is not currently accepting connections");
         return;
     }
 
     // Before accepting a new client, check that there is a slot free.
-    NET_SV_AssignPlayers();
-    num_players = NET_SV_NumPlayers();
+    if (server_state == SERVER_WAITING_LAUNCH) {
+        NET_SV_AssignPlayers();
+    }
+    num_players = NET_SV_NumPlayerClients();
 
     if ((!data.drone && num_players >= NET_SV_MaxPlayers()) || NET_SV_NumClients() >= MAXNETNODES) {
         NET_Log("server: no more players, num_players=%d, max=%d", num_players, NET_SV_MaxPlayers());
@@ -708,6 +778,13 @@ static void NET_SV_ParseSYN(net_packet_t *packet, net_client_t *client, net_addr
     reply = NET_Conn_NewReliable(&client->connection, NET_PACKET_TYPE_SYN);
     NET_WriteString(reply, PACKAGE_STRING);
     NET_WriteProtocol(reply, protocol);
+
+    // A running game has launched long ago: on to the start, where the
+    // client joins it, see NET_SV_JoinGame
+    if (server_state == SERVER_IN_GAME) {
+        reply = NET_Conn_NewReliable(&client->connection, NET_PACKET_TYPE_LAUNCH);
+        NET_WriteInt8(reply, NET_SV_NumPlayers());
+    }
 }
 
 // Parse a launch packet. This is sent by the key player when the "start"
@@ -777,6 +854,7 @@ static void StartGame(void)
     }
 
     sv_settings.num_players = NET_SV_NumPlayers();
+    sv_settings.join_tic = -1;
 
     // Copy player classes:
 
@@ -861,6 +939,91 @@ static void SendAllWaitingData(void)
     }
 }
 
+// Moves for a player who is still joining, loading the game: none. They are
+// marked, so that peers don't check them, see G_Ticker, and the player gets
+// them too and goes by them in place of their own, see D_ReceiveTic.
+
+static void NET_SV_FillTic(net_client_recv_t *recvobj)
+{
+    memset(recvobj, 0, sizeof(*recvobj));
+    recvobj->active = true;
+    recvobj->filled = true;
+    recvobj->diff.diff = NET_TICDIFF_RAVEN;
+    recvobj->diff.cmd.lookfly = TICCMD_FILLED;
+}
+
+// A client that connects to a running game, once ready, joins at the first
+// tic that no one has been sent yet. It gets the game as it is then from
+// the host's game, see D_RequestSnapshot. A player gets a marine at that
+// tic on every peer, see G_PlayerJoined.
+
+static void NET_SV_JoinGame(net_client_t *client)
+{
+    net_gamesettings_t settings;
+    net_packet_t *packet;
+    unsigned int join_tic;
+    int player = -1;
+    int i;
+
+    join_tic = recvwindow_start;
+
+    for (i = 0; i < MAXNETNODES; ++i) {
+        if (ClientConnected(&clients[i]) && clients[i].ready && clients[i].sendseq > join_tic) {
+            join_tic = clients[i].sendseq;
+        }
+    }
+
+    if (!client->drone) {
+        for (i = 0; i < NET_SV_MaxPlayers() && player < 0; ++i) {
+            if (sv_players[i] == NULL) {
+                player = i;
+            }
+        }
+
+        if (player < 0) {
+            NET_SV_DisconnectClient(client);
+            return;
+        }
+
+        // Whoever played as this player before may be in the tics up to
+        // here: then they are out for one tic, for the peers to see them
+        // leave, see RunTic in doom/d_net.c
+        if (join_tic > recvwindow_start && recvwindow[join_tic - 1 - recvwindow_start][player].active) {
+            ++join_tic;
+        }
+
+        for (i = join_tic - recvwindow_start; i < BACKUPTICS; ++i) {
+            memset(&recvwindow[i][player], 0, sizeof(recvwindow[i][player]));
+        }
+
+        sv_players[player] = client;
+        client->player_number = player;
+    }
+
+    NET_Log("server: %s joins at tic %d as player %d", NET_AddrToString(client->addr), join_tic, player);
+
+    client->ready = true;
+    client->join_tic = join_tic;
+    client->joining = !client->drone;
+    client->sendseq = join_tic;
+    client->acknowledged = join_tic;
+    client->last_gamedata_time = I_GetTimeMS();
+
+    settings = sv_settings;
+    settings.consoleplayer = player;
+    settings.num_players = NET_SV_NumSlots();
+    settings.join_tic = join_tic;
+    settings.loadgame = -1;
+
+    packet = NET_Conn_NewReliable(&client->connection, NET_PACKET_TYPE_GAMESTART);
+    NET_WriteSettings(packet, &settings);
+
+    D_RequestSnapshot(join_tic, client->addr);
+
+    // Everyone gets the newcomer's name
+    SendAllWaitingData();
+}
+
 // Parse a game start packet
 
 static void NET_SV_ParseGameStart(net_packet_t *packet, net_client_t *client)
@@ -868,6 +1031,13 @@ static void NET_SV_ParseGameStart(net_packet_t *packet, net_client_t *client)
     net_gamesettings_t settings;
 
     NET_Log("server: processing game start packet");
+
+    if (server_state == SERVER_IN_GAME) {
+        if (!client->ready) {
+            NET_SV_JoinGame(client);
+        }
+        return;
+    }
 
     // Can only start a game if we are in the waiting start state.
 
@@ -996,6 +1166,26 @@ static void NET_SV_CheckResends(net_client_t *client)
     }
 }
 
+// The first moves of a player who joined: from now on the server waits for
+// theirs, and makes up the ones still missing before
+
+static void NET_SV_Joined(net_client_t *client, unsigned int tic)
+{
+    unsigned int t = client->join_tic > recvwindow_start ? client->join_tic : recvwindow_start;
+
+    for (; t < tic; ++t) {
+        net_client_recv_t *recvobj = &recvwindow[t - recvwindow_start][client->player_number];
+
+        if (!recvobj->active) {
+            NET_SV_FillTic(recvobj);
+        }
+    }
+
+    NET_Log("server: %s joined at tic %d, moves from tic %d", NET_AddrToString(client->addr), client->join_tic, tic);
+    client->joining = false;
+    client->last_gamedata_time = I_GetTimeMS();
+}
+
 // Process game data from a client
 
 static void NET_SV_ParseGameData(net_packet_t *packet, net_client_t *client)
@@ -1018,6 +1208,11 @@ static void NET_SV_ParseGameData(net_packet_t *packet, net_client_t *client)
     if (client->drone) {
         // Drones do not contribute any game data.
         NET_Log("server: error: game data from a drone?");
+        return;
+    }
+
+    if (!client->ready) {
+        NET_Log("server: error: game data from a client that isn't in the game");
         return;
     }
 
@@ -1050,13 +1245,26 @@ static void NET_SV_ParseGameData(net_packet_t *packet, net_client_t *client)
 
         index = seq + i - recvwindow_start;
 
-        if (index < 0 || index >= BACKUPTICS) {
+        if (index < 0 || index >= BACKUPTICS || seq + i < client->join_tic) {
             // Not in range of the recv window
 
             continue;
         }
 
         recvobj = &recvwindow[index][player];
+
+        if (recvobj->filled) {
+            // Made up as the player joined, and sent to others already
+            if (client->joining && ++client->late_moves > TICRATE) {
+                NET_SV_Joined(client, seq + i);
+            }
+            continue;
+        }
+
+        if (client->joining) {
+            NET_SV_Joined(client, seq + i);
+        }
+
         recvobj->active = true;
         recvobj->diff = diff;
         recvobj->latency = latency;
@@ -1087,7 +1295,8 @@ static void NET_SV_ParseGameData(net_packet_t *packet, net_client_t *client)
     index = resend_end - 1;
     resend_start = resend_end;
 
-    while (index >= 0) {
+    // Not before the player joined
+    while (index >= 0 && recvwindow_start + index >= client->join_tic) {
         recvobj = &recvwindow[index][player];
 
         if (recvobj->active) {
@@ -1391,13 +1600,19 @@ static void NET_SV_PumpSendQueue(net_client_t *client)
     num_players = 0;
 
     for (i = 0; i < NET_MAXPLAYERS; ++i) {
-        if (sv_players[i] == client) {
-            // Client does not rely on itself for data
-
+        if (sv_players[i] == NULL || !ClientConnected(sv_players[i]) || client->sendseq < sv_players[i]->join_tic) {
             continue;
         }
 
-        if (sv_players[i] == NULL || !ClientConnected(sv_players[i])) {
+        // Before this tic goes to anyone, it has moves for a player who
+        // is still joining
+        if (sv_players[i]->joining && !recvwindow[recv_index][i].active) {
+            NET_SV_FillTic(&recvwindow[recv_index][i]);
+        }
+
+        if (sv_players[i] == client) {
+            // Client does not rely on itself for data
+
             continue;
         }
 
@@ -1429,24 +1644,20 @@ static void NET_SV_PumpSendQueue(net_client_t *client)
 
     cmd.latency = 0;
 
+    // Players are in this tic by what the receive window has of them. Those
+    // who left are until their last moves, the same for everyone.
+
     for (i = 0; i < NET_MAXPLAYERS; ++i) {
-        net_client_recv_t *recvobj;
+        net_client_recv_t *recvobj = &recvwindow[recv_index][i];
 
-        if (sv_players[i] == client) {
-            // Not the player we are sending to
-
-            cmd.playeringame[i] = false;
-            continue;
-        }
-
-        if (sv_players[i] == NULL || !recvwindow[recv_index][i].active) {
+        // Not the player we are sending to, unless the server made up
+        // their moves
+        if (!recvobj->active || (sv_players[i] == client && !recvobj->filled)) {
             cmd.playeringame[i] = false;
             continue;
         }
 
         cmd.playeringame[i] = true;
-
-        recvobj = &recvwindow[recv_index][i];
 
         cmd.cmds[i] = recvobj->diff;
 
@@ -1464,7 +1675,7 @@ static void NET_SV_PumpSendQueue(net_client_t *client)
     starttic = client->sendseq - sv_settings.extratics;
     endtic = client->sendseq;
 
-    if (starttic < 0) starttic = 0;
+    if (starttic < (int) client->join_tic) starttic = client->join_tic;
 
     NET_Log("server: send tics %d-%d to %s", starttic, endtic, NET_AddrToString(client->addr));
 
@@ -1490,9 +1701,9 @@ void NET_SV_CheckDeadlock(net_client_t *client)
     int nowtime;
     int i;
 
-    // Don't expect game data from clients.
+    // Don't expect game data from drones, nor from players still joining.
 
-    if (client->drone) {
+    if (client->drone || client->joining) {
         return;
     }
 
@@ -1507,7 +1718,9 @@ void NET_SV_CheckDeadlock(net_client_t *client)
         // Search the receive window for the first tic we are expecting
         // from this player.
 
-        for (i = 0; i < BACKUPTICS; ++i) {
+        i = client->join_tic > recvwindow_start ? client->join_tic - recvwindow_start : 0;
+
+        for (; i < BACKUPTICS; ++i) {
             if (!recvwindow[i][client->player_number].active) {
                 NET_Log("server: deadlock: sending resend request for %d-%d", recvwindow_start + i,
                         recvwindow_start + i + 5);
@@ -1570,6 +1783,12 @@ static void NET_SV_RunClient(net_client_t *client)
     if (client->connection.state == NET_CONN_STATE_DISCONNECTED) {
         client->active = false;
 
+        // The player's number is free for someone who joins
+        if (server_state == SERVER_IN_GAME && client->player_number >= 0 &&
+            sv_players[client->player_number] == client) {
+            sv_players[client->player_number] = NULL;
+        }
+
         // If we were about to start a game, any player disconnecting
         // should cause an abort.
 
@@ -1611,7 +1830,7 @@ static void NET_SV_RunClient(net_client_t *client)
         }
     }
 
-    if (server_state == SERVER_IN_GAME) {
+    if (server_state == SERVER_IN_GAME && client->ready) {
         NET_SV_PumpSendQueue(client);
         NET_SV_CheckDeadlock(client);
     }
@@ -1646,6 +1865,14 @@ void NET_SV_Init(void)
     server_state = SERVER_WAITING_LAUNCH;
     sv_gamemode = indetermined;
     server_initialized = true;
+
+    //!
+    // @category net
+    //
+    // Let players join the game once it runs.
+    //
+
+    drop_in = M_ParmExists("-dropin");
 }
 
 // Run server code to check for new packets/send packets as the server

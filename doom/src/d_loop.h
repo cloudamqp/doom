@@ -46,10 +46,25 @@ typedef struct
     // Run the menu (runs independently of the game).
 
     void (*RunMenu)();
+
+    // Save the game as it is before the tic in gametic runs, for a player
+    // who joins it. Returns the file, or NULL if the game can't be saved
+    // now, as between levels.
+
+    const char *(*SaveSnapshot)(void);
+
+    // Load a game that the host saved with SaveSnapshot, if it has arrived
+    // and is from before the given tic. Returns the tic, or -1.
+
+    int (*LoadSnapshot)(int before);
 } loop_interface_t;
 
 // Register callback functions for the main loop code to use.
 void D_RegisterLoopCallbacks(loop_interface_t *i);
+
+// Send the game as it is at the given tic to a peer who joins it, see
+// NET_SV_JoinGame
+void D_RequestSnapshot(int tic, net_addr_t *addr);
 
 // Create any new ticcmds and broadcast to other players.
 void NetUpdate (void);

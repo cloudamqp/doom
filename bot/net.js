@@ -2,6 +2,7 @@
 // one per packet, on doomq/games/<game>/<to>/<from>. See web/js/protocol.js.
 
 import { holdGoodbyes } from "../web/js/goodbyes.js";
+import { gzip } from "../web/js/gzip.js";
 import { isPeerId, topics } from "../web/js/protocol.js";
 
 export function network(mqtt, game, self) {
@@ -25,6 +26,8 @@ export function network(mqtt, game, self) {
       connected: () => mqtt.connected,
       send: (to, data) => mqtt.publish(topics.packet(game, to, self), data),
       recv: () => inbox.shift(),
+      // The running game, for a peer who joins it
+      snapshot: async (to, data) => mqtt.publish(topics.join(game, to), await gzip(data)),
     },
   };
 }

@@ -7,6 +7,7 @@
 //   doomq/saves/<game>               retained summary of the game's last save
 //   doomq/savedata/<game>            retained savegame file
 //   doomq/watch/<game>               what spectators see, a few times a second
+//   doomq/join/<game>/<peer>         the running game for a peer who joins it
 //
 // The host runs the Doom server in its browser and is always peer 1. It
 // shares the game's saves, which a resumed game loads on every player's side,
@@ -41,6 +42,7 @@ export const topics = {
   saveData: (game) => `doomq/savedata/${game}`,
   watching: "doomq/watch/+",
   watch: (game) => `doomq/watch/${game}`,
+  join: (game, peer) => `doomq/join/${game}/${peer}`,
 };
 
 export const MODES = { coop: "Co-op", deathmatch: "Deathmatch", altdeath: "Deathmatch 2.0" };
@@ -88,6 +90,7 @@ function validGame(game) {
     MAPS.includes(game.map) &&
     typeof game.monsters === "boolean" &&
     (game.spectators === undefined || typeof game.spectators === "boolean") &&
+    (game.joinMidGame === undefined || typeof game.joinMidGame === "boolean") &&
     Number.isInteger(game.players)
   );
 }
@@ -160,8 +163,13 @@ export function deleteSave(mqtt, game) {
 export function modeArgs(settings) {
   const args = settings.mode === "coop" ? [] : [`-${settings.mode}`];
   if (!settings.monsters) args.push("-nomonsters");
+  if (settings.joinMidGame) args.push("-dropin");
   return args;
 }
+
+// Players can join a game that runs, if its host lets them
+export const canJoin = (game) =>
+  game.players < game.maxPlayers && (game.state === "waiting" || (game.state === "playing" && game.joinMidGame === true));
 
 export function doomArgs(settings) {
   const [, episode, map] = settings.map.match(/E(\d)M(\d)/);

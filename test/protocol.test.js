@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_PLAYERS, isPeerId, parseListing, saveMatches } from "../web/js/protocol.js";
+import { MAX_PLAYERS, canJoin, isPeerId, parseListing, saveMatches } from "../web/js/protocol.js";
 
 const json = (value) => new TextEncoder().encode(JSON.stringify(value));
 const listing = { title: "A game", host: "Hanna", mode: "coop", skill: 3, map: "E1M3", monsters: true, players: 1, maxPlayers: 4, state: "waiting" };
@@ -17,6 +17,16 @@ test("a listing is taken as it is, or not at all", () => {
   assert.deepEqual(parseListing(json(listing)), listing);
   assert.equal(parseListing(json({ ...listing, map: "E9M9" })), null);
   assert.equal(parseListing(new TextEncoder().encode("not JSON")), null);
+});
+
+test("players join a running game only if its host lets them", () => {
+  assert.ok(canJoin(listing));
+  assert.ok(!canJoin({ ...listing, players: 4 }), "full");
+  assert.ok(!canJoin({ ...listing, state: "playing" }), "from before players could join running games");
+  assert.ok(!canJoin({ ...listing, state: "playing", joinMidGame: false }));
+  assert.ok(canJoin({ ...listing, state: "playing", joinMidGame: true }));
+  assert.ok(!canJoin({ ...listing, state: "playing", joinMidGame: true, players: 4 }), "full");
+  assert.equal(parseListing(json({ ...listing, joinMidGame: "yes" })), null);
 });
 
 test("titles and names can't steer a terminal", () => {

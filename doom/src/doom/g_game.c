@@ -890,13 +890,18 @@ void G_Ticker(void)
             }
 
             if (netgame && !netdemo && !(gametic % ticdup)) {
-                if (gametic > BACKUPTICS && consistancy[i][buf] != cmd->consistancy) {
+                // The server makes up the moves of a player who is still
+                // joining, and can't know what they should check
+                if (gametic > BACKUPTICS && cmd->lookfly != TICCMD_FILLED && consistancy[i][buf] != cmd->consistancy) {
                     I_Error("consistency failure (%i should be %i)", cmd->consistancy, consistancy[i][buf]);
                 }
+                // A player who joined between levels has no marine yet.
+                // Vanilla takes M_Random's index then, which differs from
+                // peer to peer.
                 if (players[i].mo)
                     consistancy[i][buf] = players[i].mo->x;
                 else
-                    consistancy[i][buf] = rndindex;
+                    consistancy[i][buf] = 0;
             }
         }
     }
@@ -1040,18 +1045,21 @@ void G_PlayerReborn(int player)
 //
 void P_SpawnPlayer(mapthing_t *mthing);
 
+static void G_SpawnTeleportFog(mapthing_t *mthing);
+
 boolean G_CheckSpot(int playernum, mapthing_t *mthing)
 {
     fixed_t x;
     fixed_t y;
-    subsector_t *ss;
-    mobj_t *mo;
     int i;
 
     if (!players[playernum].mo) {
-        // first spawn of level, before corpses
+        // first spawn of level, before corpses; players who have left, or
+        // joined, leave gaps
         for (i = 0; i < playernum; i++)
-            if (players[i].mo->x == mthing->x << FRACBITS && players[i].mo->y == mthing->y << FRACBITS) return false;
+            if (playeringame[i] && players[i].mo && players[i].mo->x == mthing->x << FRACBITS &&
+                players[i].mo->y == mthing->y << FRACBITS)
+                return false;
         return true;
     }
 
@@ -1065,7 +1073,20 @@ boolean G_CheckSpot(int playernum, mapthing_t *mthing)
     bodyque[bodyqueslot % BODYQUESIZE] = players[playernum].mo;
     bodyqueslot++;
 
-    // spawn a teleport fog
+    G_SpawnTeleportFog(mthing);
+
+    return true;
+}
+
+// A teleport fog where a player appears
+
+static void G_SpawnTeleportFog(mapthing_t *mthing)
+{
+    fixed_t x = mthing->x << FRACBITS;
+    fixed_t y = mthing->y << FRACBITS;
+    subsector_t *ss;
+    mobj_t *mo;
+
     ss = R_PointInSubsector(x, y);
 
     // The code in the released source looks like this:
@@ -1129,7 +1150,27 @@ boolean G_CheckSpot(int playernum, mapthing_t *mthing)
     }
 
     if (players[consoleplayer].viewz != 1) S_StartSound(mo, sfx_telept); // don't start sound on first frame
+}
 
+// Whether a player who joins fits at a spot: a respawn checks the room
+// with the player's corpse, a newcomer has none, so a marine's size stands
+// in, not in the world and picking nothing up
+
+static boolean G_CheckJoinSpot(int playernum, mapthing_t *mthing)
+{
+    static mobj_t probe;
+
+    memset(&probe, 0, sizeof(probe));
+    probe.type = MT_PLAYER;
+    probe.info = &mobjinfo[MT_PLAYER];
+    probe.radius = probe.info->radius;
+    probe.height = probe.info->height;
+    probe.flags = MF_SOLID;
+    probe.player = &players[playernum];
+
+    if (!P_CheckPosition(&probe, mthing->x << FRACBITS, mthing->y << FRACBITS)) return false;
+
+    G_SpawnTeleportFog(mthing);
     return true;
 }
 
@@ -1138,7 +1179,9 @@ boolean G_CheckSpot(int playernum, mapthing_t *mthing)
 // Spawns a player at one of the random death match spots
 // called at level load and each death
 //
-void G_DeathMatchSpawnPlayer(int playernum)
+typedef boolean (*spotcheck_t)(int playernum, mapthing_t *mthing);
+
+static void G_DeathMatchSpawn(int playernum, spotcheck_t check)
 {
     int i, j;
     int selections;
@@ -1148,7 +1191,7 @@ void G_DeathMatchSpawnPlayer(int playernum)
 
     for (j = 0; j < 20; j++) {
         i = P_Random() % selections;
-        if (G_CheckSpot(playernum, &deathmatchstarts[i])) {
+        if (check(playernum, &deathmatchstarts[i])) {
             deathmatchstarts[i].type = playernum + 1;
             P_SpawnPlayer(&deathmatchstarts[i]);
             return;
@@ -1158,14 +1201,14 @@ void G_DeathMatchSpawnPlayer(int playernum)
     // A map can have fewer deathmatch spots than players: try every one,
     // then the co-op starts, in order, so every peer picks the same
     for (i = 0; i < selections; i++) {
-        if (G_CheckSpot(playernum, &deathmatchstarts[i])) {
+        if (check(playernum, &deathmatchstarts[i])) {
             deathmatchstarts[i].type = playernum + 1;
             P_SpawnPlayer(&deathmatchstarts[i]);
             return;
         }
     }
     for (i = 0; i < VANILLA_MAXPLAYERS; i++) {
-        if (playerstartsingame[i] && G_CheckSpot(playernum, &playerstarts[i])) {
+        if (playerstartsingame[i] && check(playernum, &playerstarts[i])) {
             mapthing_t spot = playerstarts[i];
             spot.type = playernum + 1;
             P_SpawnPlayer(&spot);
@@ -1181,6 +1224,74 @@ void G_DeathMatchSpawnPlayer(int playernum)
         deathmatchstarts[0].type = playernum + 1;
         P_SpawnPlayer(&deathmatchstarts[0]);
     }
+}
+
+void G_DeathMatchSpawnPlayer(int playernum) { G_DeathMatchSpawn(playernum, G_CheckSpot); }
+
+// A newcomer in co-op: at their own start, or another one in the map
+static void G_CoopJoinSpawn(int playernum)
+{
+    int i;
+
+    if (G_CheckJoinSpot(playernum, &playerstarts[playernum])) {
+        P_SpawnPlayer(&playerstarts[playernum]);
+        return;
+    }
+
+    for (i = 0; i < VANILLA_MAXPLAYERS; i++) {
+        if (playerstartsingame[i] && G_CheckJoinSpot(playernum, &playerstarts[i])) {
+            playerstarts[i].type = playernum + 1; // fake as other player
+            P_SpawnPlayer(&playerstarts[i]);
+            playerstarts[i].type = i + 1; // restore
+            return;
+        }
+    }
+    P_SpawnPlayer(&playerstarts[playernum]);
+}
+
+// A player who joins a running game gets a new marine, at a free spot.
+// Every peer does this at the same tic, see RunTic in d_net.c, the
+// newcomer too, from the state it got, see G_LoadSnapshot.
+void G_PlayerJoined(int playernum)
+{
+    static char message[80];
+    const char *name = net_client_wait_data.player_names[playernum];
+    int i;
+
+    // Whoever had this player number before leaves a body behind
+    if (players[playernum].mo != NULL && players[playernum].mo->player == &players[playernum]) {
+        players[playernum].mo->player = NULL;
+    }
+
+    memset(&players[playernum], 0, sizeof(player_t));
+    for (i = 0; i < MAXPLAYERS; i++) {
+        players[i].frags[playernum] = 0;
+    }
+    playeringame[playernum] = true;
+
+    if (name[0] != '\0') {
+        M_snprintf(message, sizeof(message), "%s joined the game", name);
+    }
+    else {
+        M_snprintf(message, sizeof(message), "Player %d joined the game", playernum + 1);
+    }
+
+    if (gamestate != GS_LEVEL) {
+        // In an intermission or the finale: with the next level
+        players[playernum].playerstate = PST_DEAD;
+        return;
+    }
+
+    players[playernum].playerstate = PST_REBORN;
+
+    if (deathmatch) {
+        G_DeathMatchSpawn(playernum, G_CheckJoinSpot);
+    }
+    else {
+        G_CoopJoinSpawn(playernum);
+    }
+
+    players[consoleplayer].message = message;
 }
 
 //
@@ -1463,6 +1574,92 @@ void G_LoadGame(char *name)
 {
     M_StringCopy(savename, name, sizeof(savename));
     gameaction = ga_loadgame;
+}
+
+// A snapshot, for a player who joins: see P_ArchiveSnapshot. It is the
+// game as it is before the given tic runs.
+
+void G_SaveSnapshot(const char *path, int tic)
+{
+    save_stream = fopen(path, "wb");
+
+    if (save_stream == NULL) {
+        I_Error("Could not write snapshot %s", path);
+    }
+
+    savegame_error = false;
+
+    P_WriteSaveGameHeader("SNAPSHOT");
+    P_ArchiveSnapshot(tic);
+    P_WriteSaveGameEOF();
+
+    fclose(save_stream);
+
+    if (savegame_error) {
+        I_Error("Could not write snapshot %s", path);
+    }
+}
+
+// The tic a snapshot is before, or -1 if there is none at path
+
+int G_SnapshotTic(const char *path)
+{
+    byte header[SAVESTRINGSIZE + VERSIONSIZE + 3 + MAXPLAYERS + 3 + 4];
+    FILE *stream = fopen(path, "rb");
+    size_t length;
+    byte *tic = header + sizeof(header) - 4;
+
+    if (stream == NULL) {
+        return -1;
+    }
+
+    length = fread(header, 1, sizeof(header), stream);
+    fclose(stream);
+
+    if (length != sizeof(header)) {
+        I_Error("Bad snapshot: too short");
+    }
+
+    return tic[0] | (tic[1] << 8) | (tic[2] << 16) | (tic[3] << 24);
+}
+
+int G_LoadSnapshot(const char *path)
+{
+    int savedleveltime;
+    int tic;
+
+    save_stream = fopen(path, "rb");
+
+    if (save_stream == NULL) {
+        I_Error("Could not load snapshot %s", path);
+    }
+
+    savegame_error = false;
+
+    if (!P_ReadSaveGameHeader()) {
+        I_Error("Bad snapshot: version");
+    }
+
+    savedleveltime = leveltime;
+
+    // A base level, the snapshot then has the rest
+    G_InitNew(gameskill, gameepisode, gamemap);
+
+    leveltime = savedleveltime;
+
+    tic = P_UnArchiveSnapshot();
+
+    if (!P_ReadSaveGameEOF() || savegame_error) {
+        I_Error("Bad snapshot");
+    }
+
+    fclose(save_stream);
+
+    if (setsizeneeded) R_ExecuteSetViewSize();
+
+    R_FillBackScreen();
+
+    return tic;
 }
 
 void G_DoLoadGame(void)

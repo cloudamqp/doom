@@ -4,7 +4,17 @@
 import { MqttClient } from "../web/js/mqtt.js";
 import { gunzip } from "../web/js/gzip.js";
 import { GOODBYE } from "../web/js/goodbyes.js";
-import { HOST_TIMEOUT, RECONNECT_FOR, SERVER_ID, isGameId, newPeerId, parseListing, saveMatches, topics } from "../web/js/protocol.js";
+import {
+  HOST_TIMEOUT,
+  RECONNECT_FOR,
+  SERVER_ID,
+  canJoin,
+  isGameId,
+  newPeerId,
+  parseListing,
+  saveMatches,
+  topics,
+} from "../web/js/protocol.js";
 import { startDoom } from "./doom.js";
 import { network } from "./net.js";
 
@@ -12,11 +22,15 @@ import { network } from "./net.js";
 const RESUME_FILE = "saves/doomsav0.dsg";
 const LOBBY = topics.listing("");
 
-const joinable = (game) => game?.state === "waiting" && game.players < game.maxPlayers;
+// Where Doom looks for the running game as it joins, see doom/src/doom/d_net.c
+const JOIN_FILE = "join.dsg";
+
+const joinable = (game) => game !== null && canJoin(game);
 
 // Looks in the lobby for the game with the given id, or else the first one
-// that waits for players, however long that takes. Resolves to its listing
-// with its id, and the save it starts from if it is a resumed one.
+// that players can join, however long that takes. Resolves to its listing
+// with its id, and the save it starts from if it is a resumed one that waits
+// for players.
 async function find(broker, wanted) {
   const mqtt = await MqttClient.connect(broker);
   const found = Promise.withResolvers();
@@ -30,7 +44,7 @@ async function find(broker, wanted) {
   };
   await mqtt.subscribe(topics.lobby);
   const game = await found.promise;
-  if (game.resumedFrom) {
+  if (game.resumedFrom && game.state === "waiting") {
     const topic = topics.saveData(game.resumedFrom);
     const fetched = new Promise((resolve) => saves.set(topic, resolve));
     await mqtt.subscribe(topic);
@@ -44,7 +58,7 @@ async function find(broker, wanted) {
 }
 
 // Joins the game with the given id, or else the first one in the lobby
-// that waits for players. Resolves to Doom's exit status when the game is
+// that players can join. Resolves to Doom's exit status when the game is
 // over.
 //   broker  ws://user:pass@host:15672/mqtt
 //   name    the player's name
@@ -65,6 +79,7 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
   const { deliver, net } = network(mqtt, game.id, peerId);
   const over = Promise.withResolvers();
   let hostLeft; // timer, from when the host's listing went away
+  let doom;
   mqtt.onclose = () => over.reject(new Error("Lost connection to the broker"));
   mqtt.ondrop = () => say("Lost the broker, trying to get back");
   mqtt.onreconnect = () => say("Back on the broker");
@@ -74,13 +89,17 @@ export async function join({ broker, game: wanted, name, bot, say, print }) {
       // restarts, with the host's last will, and then the host puts it back.
       clearTimeout(hostLeft);
       if (!parseListing(payload)) hostLeft = setTimeout(over.resolve, HOST_TIMEOUT, 0);
+    } else if (topic === topics.join(game.id, peerId)) {
+      // The game runs already: the host sends it as it is, gzipped
+      gunzip(payload).then((data) => doom?.FS.writeFile(JOIN_FILE, data), over.reject);
     }
     deliver(topic, payload);
   };
   await mqtt.subscribe(topics.inbox(game.id, peerId));
   await mqtt.subscribe(topics.listing(game.id));
+  await mqtt.subscribe(topics.join(game.id, peerId));
 
-  await startDoom({
+  doom = await startDoom({
     args: ["-connect", String(SERVER_ID), "-pet", name, "-savedir", "saves"],
     // A resumed game starts from the host's save on every player's side
     files: game.save ? { [RESUME_FILE]: game.save } : {},

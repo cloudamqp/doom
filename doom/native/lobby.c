@@ -199,8 +199,8 @@ static void StartArena(arena_t *arena, const char *program, const char *iwad, co
 {
     const char **map = arena_maps[num_arenas++ % arrlen(arena_maps)];
     char game[GAME_ID_LEN + 1], count[4];
-    const char *host[] = {"-server", "-title", "Bot arena", "-arena", count, "-deathmatch", "-nomonsters", "-skill", "3",
-                          "-warp", map[0], map[1], "-timer", ARENA_TIMER, NULL};
+    const char *host[] = {"-server", "-title", "Bot arena", "-arena", count, "-deathmatch", "-nomonsters", "-dropin",
+                          "-skill", "3", "-warp", map[0], map[1], "-timer", ARENA_TIMER, NULL};
     int output[2];
     int i;
 

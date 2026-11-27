@@ -47,7 +47,7 @@
         them back to all. A game only moves on once it has the moves of every player.
       </p>
       <p>
-        That packet is tiny, 11 to 22 bytes here, and Doom takes care of losing one: it numbers its packets and asks for
+        That packet is tiny, 11 to 40 bytes here, and Doom takes care of losing one: it numbers its packets and asks for
         the ones that don't arrive. So Doom needs little from a network: send these bytes to that player, quickly, and
         let them through in any order.
       </p>
@@ -61,8 +61,8 @@
       <p>
         Chocolate Doom, the version that runs here, keeps its network behind a small interface: send a packet to an
         address, receive the next packet and its address. DooMQ adds an implementation of it that moves packets
-        between Doom and the page, about 170 lines of C, and the page publishes and subscribes. Nothing else in Doom's
-        network code changed.
+        between Doom and the page, about 170 lines of C, and the page publishes and subscribes. The rest of Doom's
+        network code changed only to let players join a game that runs.
       </p>
       <div class="window">
         <div class="titlebar">
@@ -117,6 +117,14 @@
               </td>
             </tr>
             <tr>
+              <td>Joining a running game</td>
+              <td>Binary messages</td>
+              <td>
+                The host sends the newcomer the game as it runs, gzipped, on
+                <code>doomq/join/&lt;game&gt;/&lt;peer&gt;</code>.
+              </td>
+            </tr>
+            <tr>
               <td>Saved games</td>
               <td>Retained binary messages</td>
               <td>The host publishes Doom's savegame, gzipped, so anyone can resume the game from the lobby later.</td>
@@ -135,18 +143,19 @@
       </div>
 
       <h2>The topics</h2>
-      <p>Five topics carry everything. The broker allows these and nothing else.</p>
+      <p>Six topics carry everything. The broker allows these and nothing else.</p>
       <pre class="window terminal"><code>doomq/lobby/&lt;game&gt;                 <span>retained JSON listing, refreshed every 5 s</span>
 doomq/games/&lt;game&gt;/&lt;to&gt;/&lt;from&gt;     <span>Doom packets, 35 a second per player, to 0 for spectators</span>
 doomq/saves/&lt;game&gt;                 <span>retained JSON summary of the last save</span>
 doomq/savedata/&lt;game&gt;              <span>retained gzipped savegame</span>
-doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</span></code></pre>
+doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</span>
+doomq/join/&lt;game&gt;/&lt;peer&gt;           <span>gzipped running game, for a peer who joins it</span></code></pre>
 
       <h2>The traffic</h2>
       <p>Measured in four player games here:</p>
       <ul>
-        <li>Each player publishes 35 packets a second to the host, 11 to 13 bytes each.</li>
-        <li>The host publishes 35 a second to each other player, up to 22 bytes in a four player game.</li>
+        <li>Each player publishes 35 packets a second to the host, 11 to 19 bytes each.</li>
+        <li>The host publishes 35 a second to each other player, up to 40 bytes in a four player game.</li>
         <li>
           A four player game puts about 210 messages a second through the broker, and as many out. Spectators add about
           9 a second each, 300 to 600 bytes, with the monsters' positions twice a second.
@@ -156,10 +165,11 @@ doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</
           upload stays the same however many watch.
         </li>
         <li>A save is at most about 60 KB gzipped, every two minutes.</li>
+        <li>A player who joins a running game gets 4 to 75 KB, 28 KB on average.</li>
       </ul>
       <p>
         The topic is the biggest part of a packet: <code>doomq/games/37238d88cf2f/1/3735928559</code> is 37 bytes, and
-        a PUBLISH adds 4 more, against a 12 byte packet. That's still about 2 KB a second each way per player.
+        a PUBLISH adds 4 more, against a packet of 11 to 40 bytes. That's 2 to 3 KB a second each way per player.
       </p>
 
       <h2>What MQTT gives here</h2>
@@ -186,7 +196,7 @@ doomq/watch/&lt;game&gt;                 <span>JSON for spectators, 9 a second</
         <li><strong>A vhost of its own.</strong> DooMQ's username is <code>doomq:doomq</code>, vhost and user.</li>
         <li>
           <strong><a href="https://lavinmq.com/blog/lavinmq-210-mqtt-topic-permissions">Topic permissions</a>.</strong>
-          A permission group allows the five topic filters above, and the broker drops anything else.
+          A permission group allows the six topic filters above, and the broker drops anything else.
         </li>
         <li>
           <strong>Policies on MQTT sessions.</strong> LavinMQ keeps each MQTT session in a queue,

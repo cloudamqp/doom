@@ -30,6 +30,14 @@
 //
 void G_DeathMatchSpawnPlayer (int playernum);
 
+// A player who joins a running game, at the same tic on every peer
+void G_PlayerJoined(int playernum);
+
+// A running game for a player who joins it, see P_ArchiveSnapshot
+void G_SaveSnapshot(const char *path, int tic);
+int G_SnapshotTic(const char *path);
+int G_LoadSnapshot(const char *path);
+
 void G_InitNew (skill_t skill, int episode, int map);
 
 // Can be called by the startup code or M_Responder.

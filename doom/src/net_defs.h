@@ -211,6 +211,12 @@ typedef struct
     int num_players;
     int consoleplayer;
 
+    // For a player who joins a running game: the tic they join at. They
+    // get the game as it is then from the host, see D_StartNetGame. -1
+    // for the players who start the game.
+
+    int join_tic;
+
     // Hexen player classes:
 
     int player_classes[NET_MAXPLAYERS];

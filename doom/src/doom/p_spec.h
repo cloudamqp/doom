@@ -176,6 +176,7 @@ typedef struct
 #define SLOWDARK			35
 
 void    P_SpawnFireFlicker (sector_t* sector);
+void    T_FireFlicker (fireflicker_t* flick);
 void    T_LightFlash (lightflash_t* flash);
 void    P_SpawnLightFlash (sector_t* sector);
 void    T_StrobeFlash (strobe_t* flash);

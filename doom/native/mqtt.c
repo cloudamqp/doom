@@ -146,12 +146,12 @@ static void WriteAll(const byte *data, size_t len)
 }
 
 // Sends a packet: its type and flags, the length of the rest as 7 bits
-// per byte, then the rest
-static void Send(int header, const buffer_t *body)
+// per byte, then the rest, which ends with a payload of any size
+static void SendWith(int header, const buffer_t *body, const byte *payload, size_t payload_len)
 {
     byte head[5];
     size_t head_len = 0;
-    size_t rest = body->len;
+    size_t rest = body->len + payload_len;
 
     head[head_len++] = header;
 
@@ -165,6 +165,12 @@ static void Send(int header, const buffer_t *body)
 
     WriteAll(head, head_len);
     WriteAll(body->data, body->len);
+    WriteAll(payload, payload_len);
+}
+
+static void Send(int header, const buffer_t *body)
+{
+    SendWith(header, body, NULL, 0);
 }
 
 static boolean Readable(int wait_ms)
@@ -473,8 +479,7 @@ void MQTT_Publish(const char *topic, const byte *payload, size_t len, boolean re
     buffer_t packet = {0};
 
     PutString(&packet, topic);
-    PutBytes(&packet, payload, len);
-    Send(PUBLISH << 4 | (retain ? 1 : 0), &packet);
+    SendWith(PUBLISH << 4 | (retain ? 1 : 0), &packet, payload, len);
 }
 
 int MQTT_Receive(char *topic, size_t topic_size, byte *payload, size_t payload_size)

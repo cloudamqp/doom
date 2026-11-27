@@ -484,6 +484,20 @@ td .button + .button {
   margin-left: 8px;
 }
 
+/* A game's links, one above the other: a running one has three */
+.actions {
+  display: grid;
+  gap: 6px;
+}
+
+.actions .button {
+  text-align: center;
+}
+
+.actions .button + .button {
+  margin: 0;
+}
+
 td .muted {
   color: var(--smoke);
   font-size: 15px;

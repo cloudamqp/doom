@@ -17,8 +17,10 @@
 //
 
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "dstrings.h"
 #include "deh_main.h"
@@ -94,8 +96,23 @@ static byte saveg_read8(void)
     return result;
 }
 
+// When set, what would be written goes into this hash instead, see
+// P_StateHash
+static unsigned int *saveg_hash;
+
+// Snapshots have every player, also those who left the game and whose
+// marines are still there. Savegames have only those in the game.
+static boolean saveg_all_players;
+
 static void saveg_write8(byte value)
 {
+    if (saveg_hash != NULL)
+    {
+        // FNV-1a
+        *saveg_hash = (*saveg_hash ^ value) * 16777619u;
+        return;
+    }
+
     if (fwrite(&value, 1, 1, save_stream) < 1)
     {
         if (!savegame_error)
@@ -167,6 +184,11 @@ static void saveg_write_pad(void)
     int padding;
     int i;
 
+    if (saveg_hash != NULL)
+    {
+        return;
+    }
+
     pos = ftell(save_stream);
 
     padding = (4 - (pos & 3)) & 3;
@@ -187,7 +209,8 @@ static void *saveg_readp(void)
 
 static void saveg_writep(const void *p)
 {
-    saveg_write32((intptr_t) p);
+    // Addresses differ from peer to peer: a hash leaves them out
+    saveg_write32(saveg_hash != NULL ? 0 : (intptr_t) p);
 }
 
 // Enum values are 32-bit integers.
@@ -410,7 +433,7 @@ static void saveg_read_mobj_t(mobj_t *str)
     // struct player_s* player;
     pl = saveg_index(saveg_read32(), MAXPLAYERS + 1, "player");
 
-    if (pl > 0 && !playeringame[pl - 1])
+    if (pl > 0 && !playeringame[pl - 1] && !saveg_all_players)
     {
         I_Error("Bad savegame: player %i isn't in the game", pl);
     }
@@ -495,7 +518,8 @@ static void saveg_write_mobj_t(mobj_t *str)
     saveg_write32(str->momz);
 
     // int validcount;
-    saveg_write32(str->validcount);
+    // The renderer counts with it too, so it differs from peer to peer
+    saveg_write32(saveg_hash != NULL ? 0 : str->validcount);
 
     // mobjtype_t type;
     saveg_write_enum(str->type);
@@ -1933,3 +1957,667 @@ void P_UnArchiveSpecials (void)
 
 }
 
+
+
+//
+// Snapshots
+//
+// A savegame is loaded by every peer at once, so what it leaves out each
+// peer makes up the same way: monsters forget whom they chase, things
+// fill the sectors and blocks in the order they are read, the random
+// numbers start over. A snapshot is for a player who joins a running
+// game: one peer loads it while the others play on, so it keeps all of it,
+// and the game goes on the same for everyone.
+//
+
+enum
+{
+    sc_end,
+    sc_mobj,
+    sc_ceiling,
+    sc_door,
+    sc_floor,
+    sc_plat,
+    sc_flash,
+    sc_strobe,
+    sc_glow,
+    sc_fire
+};
+
+#define BODYQUESIZE 32
+
+extern int prndindex;
+extern mobj_t *bodyque[BODYQUESIZE];
+extern byte consistancy[MAXPLAYERS][BACKUPTICS];
+extern boolean levelTimer;
+extern int levelTimeCount;
+extern mobj_t *braintargets[32];
+extern int numbraintargets;
+extern int braintargeton;
+
+// The thinkers of a snapshot, in the order they think: a thinker's number
+// is its place plus one, 0 is none
+static thinker_t **snapshot_thinkers;
+static int snapshot_numthinkers;
+
+// The same thinkers by address, to number them as they are written
+typedef struct
+{
+    const thinker_t *thinker;
+    int number;
+} numbered_t;
+
+static numbered_t *snapshot_numbers;
+
+static int CompareAddresses(const void *a, const void *b)
+{
+    uintptr_t x = (uintptr_t) ((const numbered_t *) a)->thinker;
+    uintptr_t y = (uintptr_t) ((const numbered_t *) b)->thinker;
+
+    return (x > y) - (x < y);
+}
+
+// Thinkers that are removed, waiting to be freed, have no number
+static int ThinkerNumber(const void *thinker)
+{
+    numbered_t key = {thinker, 0};
+    numbered_t *found;
+
+    if (thinker == NULL)
+    {
+        return 0;
+    }
+
+    found = bsearch(&key, snapshot_numbers, snapshot_numthinkers, sizeof(key), CompareAddresses);
+
+    return found != NULL ? found->number : 0;
+}
+
+static thinker_t *ThinkerOfNumber(int number)
+{
+    number = saveg_index(number, snapshot_numthinkers + 1, "thinker");
+
+    return number > 0 ? snapshot_thinkers[number - 1] : NULL;
+}
+
+static mobj_t *MobjOfNumber(int number)
+{
+    thinker_t *thinker = ThinkerOfNumber(number);
+
+    if (thinker != NULL && thinker->function.acp1 != (actionf_p1) P_MobjThinker)
+    {
+        I_Error("Bad snapshot: thinker %i is no thing", number);
+    }
+
+    return (mobj_t *) thinker;
+}
+
+static int ThinkerClass(thinker_t *th)
+{
+    int i;
+
+    if (th->function.acp1 == (actionf_p1) P_MobjThinker)    return sc_mobj;
+    if (th->function.acp1 == (actionf_p1) T_MoveCeiling)    return sc_ceiling;
+    if (th->function.acp1 == (actionf_p1) T_VerticalDoor)   return sc_door;
+    if (th->function.acp1 == (actionf_p1) T_MoveFloor)      return sc_floor;
+    if (th->function.acp1 == (actionf_p1) T_PlatRaise)      return sc_plat;
+    if (th->function.acp1 == (actionf_p1) T_LightFlash)     return sc_flash;
+    if (th->function.acp1 == (actionf_p1) T_StrobeFlash)    return sc_strobe;
+    if (th->function.acp1 == (actionf_p1) T_Glow)           return sc_glow;
+    if (th->function.acp1 == (actionf_p1) T_FireFlicker)    return sc_fire;
+
+    // Ceilings and platforms that wait to be set going again
+    if (th->function.acv == (actionf_v) NULL)
+    {
+        for (i = 0; i < MAXCEILINGS; ++i)
+        {
+            if (activeceilings[i] == (ceiling_t *) th) return sc_ceiling;
+        }
+        for (i = 0; i < MAXPLATS; ++i)
+        {
+            if (activeplats[i] == (plat_t *) th) return sc_plat;
+        }
+    }
+
+    // Removed, to be freed when the thinkers next run
+    return sc_end;
+}
+
+// Savegames leave flickering fires out, the level makes them anew. They
+// take random numbers, so a snapshot has them.
+
+static void saveg_write_fireflicker_t(fireflicker_t *str)
+{
+    saveg_write_thinker_t(&str->thinker);
+    saveg_write32(str->sector - sectors);
+    saveg_write32(str->count);
+    saveg_write32(str->maxlight);
+    saveg_write32(str->minlight);
+}
+
+static void saveg_read_fireflicker_t(fireflicker_t *str)
+{
+    saveg_read_thinker_t(&str->thinker);
+    str->sector = &sectors[saveg_index(saveg_read32(), numsectors, "sector")];
+    str->count = saveg_read32();
+    str->maxlight = saveg_read32();
+    str->minlight = saveg_read32();
+}
+
+static void AddSnapshotThinker(thinker_t *th, int *size)
+{
+    if (snapshot_numthinkers == *size)
+    {
+        thinker_t **more = Z_Malloc(sizeof(*more) * *size * 2, PU_STATIC, NULL);
+
+        memcpy(more, snapshot_thinkers, sizeof(*more) * *size);
+        Z_Free(snapshot_thinkers);
+        snapshot_thinkers = more;
+        *size *= 2;
+    }
+
+    snapshot_thinkers[snapshot_numthinkers++] = th;
+}
+
+static void FreeSnapshotThinkers(void)
+{
+    Z_Free(snapshot_thinkers);
+    snapshot_thinkers = NULL;
+    snapshot_numthinkers = 0;
+}
+
+void P_ArchiveSnapshot(int tic)
+{
+    thinker_t *th;
+    sector_t *sec;
+    line_t *li;
+    side_t *si;
+    mobj_t *mobj;
+    int size;
+    int count;
+    int i;
+    int j;
+
+    saveg_write32(tic);
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        saveg_write_pad();
+        saveg_write_player_t(&players[i]);
+    }
+
+    // The world, heights to the fraction
+    for (i = 0, sec = sectors; i < numsectors; ++i, ++sec)
+    {
+        saveg_write32(sec->floorheight);
+        saveg_write32(sec->ceilingheight);
+        saveg_write16(sec->floorpic);
+        saveg_write16(sec->ceilingpic);
+        saveg_write16(sec->lightlevel);
+        saveg_write16(sec->special);
+        saveg_write16(sec->tag);
+    }
+
+    // Not which lines a player has seen, for their automap
+    for (i = 0, li = lines; i < numlines; ++i, ++li)
+    {
+        saveg_write16(li->flags & ~ML_MAPPED);
+        saveg_write16(li->special);
+        saveg_write16(li->tag);
+    }
+
+    for (i = 0, si = sides; i < numsides; ++i, ++si)
+    {
+        saveg_write32(si->textureoffset);
+        saveg_write32(si->rowoffset);
+        saveg_write16(si->toptexture);
+        saveg_write16(si->bottomtexture);
+        saveg_write16(si->midtexture);
+    }
+
+    // The thinkers, in the order they think
+    size = 256;
+    snapshot_thinkers = Z_Malloc(sizeof(*snapshot_thinkers) * size, PU_STATIC, NULL);
+    snapshot_numthinkers = 0;
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (ThinkerClass(th) != sc_end)
+        {
+            AddSnapshotThinker(th, &size);
+        }
+    }
+
+    snapshot_numbers = Z_Malloc(sizeof(*snapshot_numbers) * (snapshot_numthinkers + 1), PU_STATIC, NULL);
+    for (i = 0; i < snapshot_numthinkers; ++i)
+    {
+        snapshot_numbers[i].thinker = snapshot_thinkers[i];
+        snapshot_numbers[i].number = i + 1;
+    }
+    qsort(snapshot_numbers, snapshot_numthinkers, sizeof(*snapshot_numbers), CompareAddresses);
+
+    for (i = 0; i < snapshot_numthinkers; ++i)
+    {
+        th = snapshot_thinkers[i];
+
+        saveg_write8(ThinkerClass(th));
+        saveg_write_pad();
+
+        switch (ThinkerClass(th))
+        {
+          case sc_mobj:    saveg_write_mobj_t((mobj_t *) th); break;
+          case sc_ceiling: saveg_write_ceiling_t((ceiling_t *) th); break;
+          case sc_door:    saveg_write_vldoor_t((vldoor_t *) th); break;
+          case sc_floor:   saveg_write_floormove_t((floormove_t *) th); break;
+          case sc_plat:    saveg_write_plat_t((plat_t *) th); break;
+          case sc_flash:   saveg_write_lightflash_t((lightflash_t *) th); break;
+          case sc_strobe:  saveg_write_strobe_t((strobe_t *) th); break;
+          case sc_glow:    saveg_write_glow_t((glow_t *) th); break;
+          case sc_fire:    saveg_write_fireflicker_t((fireflicker_t *) th); break;
+        }
+    }
+
+    saveg_write8(sc_end);
+
+    // What things point at, and the order of the things in each sector
+    // and block, which decides what a move bumps into first. Things in no
+    // sector or block keep what they last pointed at, it isn't written.
+    for (i = 0; i < snapshot_numthinkers; ++i)
+    {
+        if (ThinkerClass(snapshot_thinkers[i]) != sc_mobj)
+        {
+            continue;
+        }
+
+        mobj = (mobj_t *) snapshot_thinkers[i];
+        saveg_write32(ThinkerNumber(mobj->target));
+        saveg_write32(ThinkerNumber(mobj->tracer));
+        if (!(mobj->flags & MF_NOSECTOR))
+        {
+            saveg_write32(ThinkerNumber(mobj->snext));
+            saveg_write32(ThinkerNumber(mobj->sprev));
+        }
+        if (!(mobj->flags & MF_NOBLOCKMAP))
+        {
+            saveg_write32(ThinkerNumber(mobj->bnext));
+            saveg_write32(ThinkerNumber(mobj->bprev));
+        }
+    }
+
+    for (i = 0, sec = sectors; i < numsectors; ++i, ++sec)
+    {
+        saveg_write32(ThinkerNumber(sec->thinglist));
+        saveg_write32(ThinkerNumber(sec->soundtarget));
+        saveg_write32(ThinkerNumber(sec->specialdata));
+    }
+
+    count = 0;
+    for (i = 0; i < bmapwidth * bmapheight; ++i)
+    {
+        if (blocklinks[i] != NULL) ++count;
+    }
+    saveg_write32(count);
+    for (i = 0; i < bmapwidth * bmapheight; ++i)
+    {
+        if (blocklinks[i] != NULL)
+        {
+            saveg_write32(i);
+            saveg_write32(ThinkerNumber(blocklinks[i]));
+        }
+    }
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        saveg_write32(ThinkerNumber(players[i].mo));
+        saveg_write32(ThinkerNumber(players[i].attacker));
+    }
+
+    // The rest of what the game goes on with
+    // Not M_Random's: sounds and screen wipes take from it, which differ
+    // from peer to peer
+    saveg_write32(prndindex);
+    saveg_write32(paused);
+    saveg_write32(levelTimer);
+    saveg_write32(levelTimeCount);
+    saveg_write32(totalkills);
+    saveg_write32(totalitems);
+    saveg_write32(totalsecret);
+
+    saveg_write32(bodyqueslot);
+    for (i = 0; i < BODYQUESIZE; ++i)
+    {
+        saveg_write32(ThinkerNumber(bodyque[i]));
+    }
+
+    saveg_write32(iquehead);
+    saveg_write32(iquetail);
+    for (i = 0; i < ITEMQUESIZE; ++i)
+    {
+        saveg_write_mapthing_t(&itemrespawnque[i]);
+        saveg_write32(itemrespawntime[i]);
+    }
+
+    for (i = 0; i < MAXBUTTONS; ++i)
+    {
+        button_t *button = &buttonlist[i];
+
+        saveg_write32(button->line != NULL ? button->line - lines : -1);
+        saveg_write32(button->where);
+        saveg_write32(button->btexture);
+        saveg_write32(button->btimer);
+        saveg_write32(button->soundorg != NULL ? (sector_t *) ((byte *) button->soundorg - offsetof(sector_t, soundorg)) - sectors : -1);
+    }
+
+    saveg_write32(numbraintargets);
+    saveg_write32(braintargeton);
+    for (i = 0; i < numbraintargets; ++i)
+    {
+        saveg_write32(ThinkerNumber(braintargets[i]));
+    }
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        for (j = 0; j < BACKUPTICS; ++j)
+        {
+            saveg_write8(consistancy[i][j]);
+        }
+    }
+
+    Z_Free(snapshot_numbers);
+    snapshot_numbers = NULL;
+    FreeSnapshotThinkers();
+}
+
+int P_UnArchiveSnapshot(void)
+{
+    thinker_t *th;
+    thinker_t *next;
+    sector_t *sec;
+    line_t *li;
+    side_t *si;
+    mobj_t *mobj;
+    int class;
+    int size;
+    int count;
+    int i;
+    int j;
+    int tic;
+
+    tic = saveg_read32();
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        saveg_read_pad();
+        saveg_read_player_t(&players[i]);
+        players[i].mo = NULL;
+        players[i].message = NULL;
+        players[i].attacker = NULL;
+    }
+
+    for (i = 0, sec = sectors; i < numsectors; ++i, ++sec)
+    {
+        sec->floorheight = saveg_read32();
+        sec->ceilingheight = saveg_read32();
+        sec->floorpic = saveg_index(saveg_read16(), numflats, "flat");
+        sec->ceilingpic = saveg_index(saveg_read16(), numflats, "flat");
+        sec->lightlevel = saveg_read16();
+        sec->special = saveg_read16();
+        sec->tag = saveg_read16();
+    }
+
+    for (i = 0, li = lines; i < numlines; ++i, ++li)
+    {
+        li->flags = saveg_read16();
+        li->special = saveg_read16();
+        li->tag = saveg_read16();
+    }
+
+    for (i = 0, si = sides; i < numsides; ++i, ++si)
+    {
+        si->textureoffset = saveg_read32();
+        si->rowoffset = saveg_read32();
+        si->toptexture = saveg_index(saveg_read16(), numtextures, "texture");
+        si->bottomtexture = saveg_index(saveg_read16(), numtextures, "texture");
+        si->midtexture = saveg_index(saveg_read16(), numtextures, "texture");
+    }
+
+    // Away with the level's own thinkers
+    for (th = thinkercap.next; th != &thinkercap; th = next)
+    {
+        next = th->next;
+        Z_Free(th);
+    }
+    P_InitThinkers();
+    for (i = 0; i < MAXCEILINGS; ++i) activeceilings[i] = NULL;
+    for (i = 0; i < MAXPLATS; ++i) activeplats[i] = NULL;
+
+    size = 256;
+    snapshot_thinkers = Z_Malloc(sizeof(*snapshot_thinkers) * size, PU_STATIC, NULL);
+    snapshot_numthinkers = 0;
+
+    saveg_all_players = true;
+
+    while ((class = saveg_read8()) != sc_end)
+    {
+        saveg_read_pad();
+
+        switch (class)
+        {
+          case sc_mobj:
+            mobj = Z_Malloc(sizeof(*mobj), PU_LEVEL, NULL);
+            saveg_read_mobj_t(mobj);
+            mobj->info = &mobjinfo[mobj->type];
+            mobj->subsector = R_PointInSubsector(mobj->x, mobj->y);
+            mobj->snext = mobj->sprev = mobj->bnext = mobj->bprev = NULL;
+            mobj->thinker.function.acp1 = (actionf_p1) P_MobjThinker;
+            th = &mobj->thinker;
+            break;
+
+          case sc_ceiling:
+          {
+            ceiling_t *ceiling = Z_Malloc(sizeof(*ceiling), PU_LEVEL, NULL);
+            saveg_read_ceiling_t(ceiling);
+            if (ceiling->thinker.function.acp1)
+                ceiling->thinker.function.acp1 = (actionf_p1) T_MoveCeiling;
+            P_AddActiveCeiling(ceiling);
+            th = &ceiling->thinker;
+            break;
+          }
+
+          case sc_door:
+          {
+            vldoor_t *door = Z_Malloc(sizeof(*door), PU_LEVEL, NULL);
+            saveg_read_vldoor_t(door);
+            door->thinker.function.acp1 = (actionf_p1) T_VerticalDoor;
+            th = &door->thinker;
+            break;
+          }
+
+          case sc_floor:
+          {
+            floormove_t *floor = Z_Malloc(sizeof(*floor), PU_LEVEL, NULL);
+            saveg_read_floormove_t(floor);
+            floor->thinker.function.acp1 = (actionf_p1) T_MoveFloor;
+            th = &floor->thinker;
+            break;
+          }
+
+          case sc_plat:
+          {
+            plat_t *plat = Z_Malloc(sizeof(*plat), PU_LEVEL, NULL);
+            saveg_read_plat_t(plat);
+            if (plat->thinker.function.acp1)
+                plat->thinker.function.acp1 = (actionf_p1) T_PlatRaise;
+            P_AddActivePlat(plat);
+            th = &plat->thinker;
+            break;
+          }
+
+          case sc_flash:
+          {
+            lightflash_t *flash = Z_Malloc(sizeof(*flash), PU_LEVEL, NULL);
+            saveg_read_lightflash_t(flash);
+            flash->thinker.function.acp1 = (actionf_p1) T_LightFlash;
+            th = &flash->thinker;
+            break;
+          }
+
+          case sc_strobe:
+          {
+            strobe_t *strobe = Z_Malloc(sizeof(*strobe), PU_LEVEL, NULL);
+            saveg_read_strobe_t(strobe);
+            strobe->thinker.function.acp1 = (actionf_p1) T_StrobeFlash;
+            th = &strobe->thinker;
+            break;
+          }
+
+          case sc_glow:
+          {
+            glow_t *glow = Z_Malloc(sizeof(*glow), PU_LEVEL, NULL);
+            saveg_read_glow_t(glow);
+            glow->thinker.function.acp1 = (actionf_p1) T_Glow;
+            th = &glow->thinker;
+            break;
+          }
+
+          case sc_fire:
+          {
+            fireflicker_t *fire = Z_Malloc(sizeof(*fire), PU_LEVEL, NULL);
+            saveg_read_fireflicker_t(fire);
+            fire->thinker.function.acp1 = (actionf_p1) T_FireFlicker;
+            th = &fire->thinker;
+            break;
+          }
+
+          default:
+            I_Error("Bad snapshot: thinker class %i", class);
+            return -1;
+        }
+
+        P_AddThinker(th);
+        AddSnapshotThinker(th, &size);
+    }
+
+    saveg_all_players = false;
+
+    for (i = 0; i < snapshot_numthinkers; ++i)
+    {
+        if (snapshot_thinkers[i]->function.acp1 != (actionf_p1) P_MobjThinker)
+        {
+            continue;
+        }
+
+        mobj = (mobj_t *) snapshot_thinkers[i];
+        mobj->target = MobjOfNumber(saveg_read32());
+        mobj->tracer = MobjOfNumber(saveg_read32());
+        if (!(mobj->flags & MF_NOSECTOR))
+        {
+            mobj->snext = MobjOfNumber(saveg_read32());
+            mobj->sprev = MobjOfNumber(saveg_read32());
+        }
+        if (!(mobj->flags & MF_NOBLOCKMAP))
+        {
+            mobj->bnext = MobjOfNumber(saveg_read32());
+            mobj->bprev = MobjOfNumber(saveg_read32());
+        }
+    }
+
+    for (i = 0, sec = sectors; i < numsectors; ++i, ++sec)
+    {
+        sec->thinglist = MobjOfNumber(saveg_read32());
+        sec->soundtarget = MobjOfNumber(saveg_read32());
+        sec->specialdata = ThinkerOfNumber(saveg_read32());
+    }
+
+    memset(blocklinks, 0, sizeof(*blocklinks) * bmapwidth * bmapheight);
+    count = saveg_read32();
+    for (j = 0; j < count; ++j)
+    {
+        i = saveg_index(saveg_read32(), bmapwidth * bmapheight, "block");
+        blocklinks[i] = MobjOfNumber(saveg_read32());
+    }
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        players[i].mo = MobjOfNumber(saveg_read32());
+        players[i].attacker = MobjOfNumber(saveg_read32());
+
+        if (playeringame[i] && players[i].mo == NULL)
+        {
+            I_Error("Bad snapshot: player %i has no marine", i + 1);
+        }
+    }
+
+    prndindex = saveg_read32() & 0xff;
+    paused = saveg_read32() != 0;
+    levelTimer = saveg_read32() != 0;
+    levelTimeCount = saveg_read32();
+    totalkills = saveg_read32();
+    totalitems = saveg_read32();
+    totalsecret = saveg_read32();
+
+    bodyqueslot = saveg_read32();
+    for (i = 0; i < BODYQUESIZE; ++i)
+    {
+        bodyque[i] = MobjOfNumber(saveg_read32());
+    }
+
+    iquehead = saveg_index(saveg_read32(), ITEMQUESIZE, "item queue");
+    iquetail = saveg_index(saveg_read32(), ITEMQUESIZE, "item queue");
+    for (i = 0; i < ITEMQUESIZE; ++i)
+    {
+        saveg_read_mapthing_t(&itemrespawnque[i]);
+        itemrespawntime[i] = saveg_read32();
+    }
+
+    for (i = 0; i < MAXBUTTONS; ++i)
+    {
+        button_t *button = &buttonlist[i];
+        int line = saveg_read32();
+        int sector;
+
+        button->line = line >= 0 ? &lines[saveg_index(line, numlines, "line")] : NULL;
+        button->where = saveg_read32();
+        button->btexture = saveg_read32();
+        button->btimer = saveg_read32();
+        sector = saveg_read32();
+        button->soundorg = sector >= 0 ? &sectors[saveg_index(sector, numsectors, "sector")].soundorg : NULL;
+    }
+
+    numbraintargets = saveg_index(saveg_read32(), arrlen(braintargets) + 1, "brain targets");
+    braintargeton = saveg_read32();
+    if (braintargeton != 0)
+    {
+        saveg_index(braintargeton, numbraintargets, "brain target");
+    }
+    for (i = 0; i < numbraintargets; ++i)
+    {
+        braintargets[i] = MobjOfNumber(saveg_read32());
+    }
+
+    for (i = 0; i < MAXPLAYERS; ++i)
+    {
+        for (j = 0; j < BACKUPTICS; ++j)
+        {
+            consistancy[i][j] = saveg_read8();
+        }
+    }
+
+    FreeSnapshotThinkers();
+
+    return tic;
+}
+
+// A hash of everything a snapshot keeps, the same on every peer that is in
+// step: peers print it with -hash, to show that they are
+unsigned int P_StateHash(int tic)
+{
+    unsigned int hash = 2166136261u;
+
+    saveg_hash = &hash;
+    saveg_write32(leveltime);
+    P_ArchiveSnapshot(tic);
+    saveg_hash = NULL;
+
+    return hash;
+}

@@ -56,6 +56,10 @@ EM_JS(void, Broker_Send, (uint32_t to, const byte *data, int len), {
     Module.net.send(to >>> 0, HEAPU8.slice(data, data + len));
 });
 
+EM_JS(void, Broker_Snapshot, (uint32_t to, const byte *data, int len), {
+    Module.net.snapshot(to >>> 0, HEAPU8.slice(data, data + len));
+});
+
 // Copies the next queued packet into buf and returns its length,
 // or -1 when the queue is empty. Oversized packets are dropped.
 EM_JS(int, Broker_Recv, (uint32_t *from, byte *buf, int size), {
@@ -72,6 +76,7 @@ EM_JS(int, Broker_Recv, (uint32_t *from, byte *buf, int size), {
 
 boolean Broker_Connected(void);
 void Broker_Send(uint32_t to, const byte *data, int len);
+void Broker_Snapshot(uint32_t to, const byte *data, int len);
 int Broker_Recv(uint32_t *from, byte *buf, int size);
 
 #endif
@@ -114,6 +119,11 @@ static net_addr_t *FindAddress(uint32_t id)
     free_slot->addr.handle = free_slot;
 
     return &free_slot->addr;
+}
+
+void NET_MQTT_SendSnapshot(net_addr_t *addr, const byte *data, int len)
+{
+    Broker_Snapshot(PeerId(addr), data, len);
 }
 
 static boolean NET_MQTT_Init(void)

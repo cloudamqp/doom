@@ -17,6 +17,7 @@
 //	all OS independend parts.
 //
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "b_native.h"
@@ -31,6 +32,7 @@
 #include "m_argv.h"
 #include "m_menu.h"
 #include "m_misc.h"
+#include "p_saveg.h"
 #include "w_checksum.h"
 #include "w_wad.h"
 
@@ -66,16 +68,40 @@ static void PlayerQuitGame(player_t *player)
     }
 }
 
+// Where the host saves the game for a player who joins, and where it
+// arrives there, see NET_MQTT_SendSnapshot
+#define SNAPSHOT_FILE "snapshot.dsg"
+#define JOIN_FILE "join.dsg"
+
+// -hash: print a hash of the game every second, see P_StateHash
+static boolean print_hashes;
+
+// -snapshottest <tic>: save the game as for a player who joins at that tic,
+// and go on from what loads again. Hashes show if anything got lost.
+static int snapshot_test = -1;
+
 static void RunTic(ticcmd_t *cmds, boolean *ingame)
 {
     extern boolean advancedemo;
     unsigned int i;
 
-    // Check for player quits.
+    if (gametic == snapshot_test) {
+        G_SaveSnapshot(SNAPSHOT_FILE, gametic);
+        G_LoadSnapshot(SNAPSHOT_FILE);
+    }
+
+    if (print_hashes && gametic % TICRATE == 0 && gamestate == GS_LEVEL) {
+        printf("hash: %d %08x\n", gametic, P_StateHash(gametic));
+    }
+
+    // Check for player quits, and players who join
 
     for (i = 0; i < MAXPLAYERS; ++i) {
         if (!demoplayback && playeringame[i] && !ingame[i]) {
             PlayerQuitGame(&players[i]);
+        }
+        if (!demoplayback && !playeringame[i] && ingame[i]) {
+            G_PlayerJoined(i);
         }
     }
 
@@ -89,7 +115,37 @@ static void RunTic(ticcmd_t *cmds, boolean *ingame)
     G_Ticker();
 }
 
-static loop_interface_t doom_loop_interface = {D_ProcessEvents, G_BuildTiccmd, RunTic, M_Ticker};
+// Between levels there is more to the game than a snapshot has
+static const char *SaveSnapshot(void)
+{
+    if (gamestate != GS_LEVEL || gameaction != ga_nothing) {
+        return NULL;
+    }
+
+    G_SaveSnapshot(SNAPSHOT_FILE, gametic);
+
+    return SNAPSHOT_FILE;
+}
+
+static int LoadSnapshot(int before)
+{
+    int tic = G_SnapshotTic(JOIN_FILE);
+
+    if (tic < 0 || tic >= before) {
+        return -1;
+    }
+
+    // Before a spectator is told whom it watches, as when a game starts
+    printf("doom: 10, game started\n");
+
+    G_LoadSnapshot(JOIN_FILE);
+    remove(JOIN_FILE);
+
+    return tic;
+}
+
+static loop_interface_t doom_loop_interface = {D_ProcessEvents, G_BuildTiccmd, RunTic, M_Ticker, SaveSnapshot,
+                                               LoadSnapshot};
 
 // Load game settings from the specified structure and
 // set global variables.
@@ -239,6 +295,7 @@ void D_ConnectNetGame(void)
 void D_CheckNetGame(void)
 {
     net_gamesettings_t settings;
+    int i;
 
     if (netgame) {
         autostart = true;
@@ -246,9 +303,23 @@ void D_CheckNetGame(void)
 
     D_RegisterLoopCallbacks(&doom_loop_interface);
 
+    print_hashes = M_ParmExists("-hash");
+
+    i = M_CheckParmWithArgs("-snapshottest", 1);
+    if (i > 0) {
+        snapshot_test = atoi(myargv[i + 1]);
+    }
+
     SaveGameSettings(&settings);
     D_StartNetGame(&settings, NULL);
     LoadGameSettings(&settings);
+
+#ifndef __EMSCRIPTEN__
+    // The game that a player who joins gets is too big for native/mqtt.c
+    if (settings.join_tic >= 0) {
+        I_Error("doom: 7, could not join: the game has started");
+    }
+#endif
 
     DEH_printf("startskill %i  deathmatch: %i  startmap: %i  startepisode: %i\n", startskill, deathmatch, startmap,
                startepisode);
@@ -270,6 +341,12 @@ void D_CheckNetGame(void)
             printf(".\n");
         }
     }
-    printf("doom: 10, game started\n");
+    // A player who joins a running game is in once it has arrived
+    if (settings.join_tic < 0) {
+        printf("doom: 10, game started\n");
+    }
+    else {
+        printf("doom: 17, joining at tic %d\n", settings.join_tic);
+    }
 }
 

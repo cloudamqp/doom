@@ -74,6 +74,22 @@ test("a game between bots carries on when the broker restarts", async () => {
   await waitForLine({ get output() { return host.output.slice(before); } }, "doom: 14,", 60_000);
 });
 
+// The game that a player who joins gets is the game itself, see
+// P_ArchiveSnapshot: the host saves its game at a tic and goes on from what
+// it loads, the guest doesn't, and they still have the same game. -hash
+// prints a hash of it every second.
+test("a game saved for a player who joins goes on the same", async () => {
+  const game = randomBytes(6).toString("hex");
+  const match = ["-bot", "5", "-deathmatch", "-skill", "4", "-warp", "1", "2", "-hash"];
+  const host = play(game, ["-server", "-nodes", "2", "-snapshottest", "350", ...match]);
+  await waitForLine(host, "NET_Init", 5_000);
+  const guest = play(game, ["-connect", "1", ...match]);
+  await Promise.all([host, guest].map((player) => waitForLine(player, "hash: 1050 ", 60_000)));
+
+  const hashes = (player) => player.output.split("\n").filter((line) => line.startsWith("hash: ")).slice(0, 31);
+  assert.deepEqual(hashes(guest), hashes(host));
+});
+
 // A deathmatch of 5 minutes between bots, played in one process in a
 // fraction of a second. Returns a line per player.
 function simulate(skills, seed) {

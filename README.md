@@ -23,6 +23,7 @@ their tab.
 | `doomq/games/<game>/<to>/<from>` | no       | every peer, one Doom packet per message              |
 | `doomq/saves/<game>`             | yes      | the host on every save: title, mode, map, players    |
 | `doomq/savedata/<game>`          | yes      | the host on every save: the gzipped savegame         |
+| `doomq/join/<game>/<peer>`       | no       | the host, for a peer who joins a running game        |
 
 - The lobby subscribes to `doomq/lobby/+`, retained messages list running games
   to new visitors at once.
@@ -90,13 +91,47 @@ and monsters are to `doomq/watch/<game>` nine times a second, read from Doom
 by `doom/src/doom/d_watch.c`, and the page draws the maps from the WAD the
 way Doom's automap does (`web/js/watch.js`, `web/js/wad.js`).
 
-Spectators can also watch in Doom itself: Spectate, in the lobby before the
-game starts, joins as one of Doom's drones (`-drone`), and Space, a click or
-F12 switches between players, in deathmatch too. They all get the game on one topic,
+Spectators can also watch in Doom itself: Spectate, in the lobby, joins as
+one of Doom's drones (`-drone`), and Space, a click or F12 switches between
+players, in deathmatch too. They all get the game on one topic,
 `doomq/games/<game>/0/1`: the host's Doom server publishes each tic there once
 and the broker copies it to every spectator. The server doesn't wait for
 spectators, so a slow one only falls behind itself. A host can turn
 spectators off, from above and in Doom, when creating the game.
+
+### Joining a running game
+
+Players can join a game that runs, unless its host unticked Join mid-game.
+Spectators can always, unless the host turned them off. Classic Doom can't:
+its lockstep only ever runs a game that every peer has had from the first
+tic. Doom + Doom II from 2024 replaced that netcode to let players drop in.
+DooMQ keeps the lockstep, and gives a newcomer the game as it is:
+
+- Doom's server (`doom/src/net_server.c`, `-dropin`) takes the newcomer at
+  the first tic that no one has been sent yet. A player gets a free player
+  number, the lowest, also one that someone left. Everyone's Doom gives them
+  a marine at that tic, at a spot where it fits (`G_PlayerJoined` in
+  `doom/src/doom/g_game.c`).
+- The host's Doom saves the game just before that tic runs, and sends it to
+  the newcomer on `doomq/join/<game>/<peer>`, gzipped: 4 to 75 KB depending
+  on the map, 28 KB on average. Between levels it waits for the next one.
+- Meanwhile the newcomer gets the tics like everyone else. It loads the game,
+  runs the tics it missed as fast as it can, and plays. Until its first
+  moves arrive in time, the server makes up empty ones for it, so the others
+  never wait for the newcomer: they see its marine stand still for a moment.
+- A savegame wouldn't do: Doom loads one on every peer at once, so it leaves
+  out what they all make up the same way, like whom a monster chases, where
+  the random numbers are, and in which order things are in the world, which
+  decides what a move bumps into first. A newcomer must have it all, or the
+  game goes another way on its screen. So it's a snapshot of everything
+  (`P_ArchiveSnapshot` in `doom/src/doom/p_saveg.c`).
+- Moves travel whole, not as changes to the last ones: the newcomer has no
+  last ones. That makes a packet a few bytes bigger.
+
+`-hash` prints a hash of the game every second, the same on every peer that
+is in step, and `-snapshottest <tic>` makes the host save the game at a tic
+and go on from what it loads. The tests compare the hashes of players who
+joined and of those who were there from the start.
 
 The lobby plays Freedoom's E1M1 from the first click or key press until the
 game starts, at Doom's music volume. `bin/build.sh` renders it from the WAD
@@ -113,7 +148,8 @@ LAME.
 - A savegame records which of the eight player slots were in use. A resumed
   game starts by itself once that many players have joined. The host can
   start it earlier with fewer, and the missing players' marines leave the
-  game. More can't join: Doom would have no marine for them.
+  game. More can't join before it starts: Doom would have no marine for
+  them. Once it runs, players who join get a new marine, up to that many.
 - Saves expire after 24 hours, the lobby deletes expired ones it sees. A
   resumed game's first save replaces the save it was resumed from.
 - A save is 17 to 300 KB depending on the map, 120 KB on average across
@@ -143,7 +179,7 @@ browser around it.
 
 ## Bots
 
-    bin/bot.js http://localhost:8080/           # joins the first game that waits for players
+    bin/bot.js http://localhost:8080/           # joins the first game that players can join
     bin/bot.js <a game's address>               # or this one, as copied from the browser
     bin/bot.js --host http://localhost:8080/    # starts a game of its own
     bin/bot.js --solo E1M1                      # practice alone, as fast as the machine goes
@@ -160,8 +196,8 @@ exits when it is over.
 With `--host` a bot starts a game instead: it runs Doom's server and lists the
 game in the lobby, for people and other bots to join. Without a screen there is
 no waiting room to press Space in, so the game starts once `--players` are in,
-the bot included. `--mode`, `--map`, `--skill`, `--title`, `--no-monsters` and
-`--no-spectators` are the lobby's form. Spectators can watch a bot's game as
+the bot included. `--mode`, `--map`, `--skill`, `--title`, `--no-monsters`,
+`--no-spectators` and `--no-join-mid-game` are the lobby's form. Spectators can watch a bot's game as
 any other. It is not saved, so it can't be resumed.
 
 Bots need Node 22 and the build in `web/`, see Development.
@@ -223,6 +259,7 @@ With `-arena 2`, the service also keeps a game of 2 bots waiting in the
 lobby, the "Bot arena", so there is always someone to play with. It starts
 10 seconds after the first player joined, lasts 10 minutes or until the
 last player left, and the next one is put up as soon as it starts.
+Players can join it while it runs too.
 `-arenaskill` sets the skill of its bots, 3 unless told. The levels are
 ones that the bots know well.
 
@@ -244,7 +281,7 @@ Set `BROKER_URL=mqtt://user:pass@host:port` for another broker than the one
 of `docker compose`, or `mqtts://` for one with TLS, port 8883 unless told.
 Its certificate has to be one that the system trusts for that host name.
 The script builds the bot with `make -C doom native`, which needs a C
-compiler and OpenSSL (3 or newer, found with pkg-config), and
+compiler, OpenSSL (3 or newer) and zlib, found with pkg-config, and
 `web/freedoom1.wad` from `bin/build.sh`.
 
 The bot (`doom/src/doom/b_native.c`) decides the player's input each tic in
@@ -384,8 +421,10 @@ hides the real games until the next reset.
   background tabs entirely, like on phones, pause the game for everyone, and
   after 10 s that player is dropped, or the game ends if it was the host.
 - A broker that is away for more than 8 seconds ends its games.
-- Doom has no drop-in: join before the host starts. 8 players at most in
-  deathmatch, 4 in co-op, bots included: co-op maps have four player starts.
+- 8 players at most in deathmatch, 4 in co-op, bots included: co-op maps
+  have four player starts.
+- Native bots can't join a game that runs: the game is too big for their
+  MQTT client. They can host one that players join.
 - Sound starts on the first click or key press.
 
 ## License
