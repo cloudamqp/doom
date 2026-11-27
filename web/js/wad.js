@@ -1,10 +1,10 @@
 // Maps from a WAD, as lines the way Doom's automap draws them: walls, then
-// steps in the floor, then steps in the ceiling. Lines without a step, and
-// lines the map hides, aren't drawn.
+// steps in the floor, then steps in the ceiling. Lines without a step aren't
+// drawn. Lines that a map hides from the automap are, since spectators see
+// the whole level: some keep their deathmatch arena out of the automap.
 
 const NO_SIDE = 0xffff;
 const SECRET = 32;
-const DONT_DRAW = 128;
 const TELEPORTER = 39;
 
 function directory(wad) {
@@ -38,7 +38,6 @@ export function readMap(wad, name) {
   const lines = [];
   for (const field of records("LINEDEFS", 14)) {
     const flags = field(4) & 0xffff;
-    if (flags & DONT_DRAW) continue;
     const front = sides[field(10) & 0xffff];
     const backSide = field(12) & 0xffff;
     const back = backSide === NO_SIDE ? null : sides[backSide];
