@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- DooMQ's icon, doomq.svg: LavinMQ's peaks in Doom's fire colors.
+     bin/icon.js takes favicon.ico and apple-touch-icon.png from it. -->
+<meta charset="utf-8" />
+<title>DooMQ's icon</title>
+<style>
+  html, body { margin: 0; background: transparent; }
+  .icon { display: grid; place-items: center; width: 512px; height: 512px; }
+  .icon img { width: 100%; height: 100%; }
+  /* iOS rounds a home screen icon's corners itself, and fills what is see-through black */
+  .square .icon { background: #141414; }
+  .square .icon img { width: 80%; height: 80%; }
+</style>
+<div class="icon"><img src="doomq.svg" alt="" /></div>
+<script type="module">
+  if (new URLSearchParams(location.search).has("square")) document.body.classList.add("square");
+  await document.querySelector("img").decode();
+  document.body.dataset.ready = "1";
+</script>
